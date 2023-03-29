@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "dcp",
+    "dcp_armv8_to_ir",
+    "dcp_ir",
+    "dcp_reorder",
+    "dcp_ofile",
+    "dcp_cfg",
+    "dcp_ir_to_cfg",
+    "dcp_cf_pat",
+    "dcp_tidy",
+    "dcp_dataflow",
+    "dcp_abi"
+]

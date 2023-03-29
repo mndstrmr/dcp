@@ -1,0 +1,18 @@
+[package]
+name = "dcp"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "3.2.17", features = ["derive"] }
+dcp_ofile = { path = "../dcp_ofile" }
+dcp_armv8_to_ir = { path = "../dcp_armv8_to_ir" }
+dcp_reorder = { path = "../dcp_reorder" }
+dcp_cf_pat = { path = "../dcp_cf_pat" }
+dcp_tidy = { path = "../dcp_tidy" }
+dcp_cfg = { path = "../dcp_cfg" }
+dcp_ir_to_cfg = { path = "../dcp_ir_to_cfg" }
+dcp_ir = { path = "../dcp_ir" }
+dcp_dataflow = { path = "../dcp_dataflow" }
