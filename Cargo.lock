@@ -106,85 +106,16 @@ dependencies = [
 name = "dcp"
 version = "0.1.0"
 dependencies = [
- "clap",
- "dcp_armv8_to_ir",
- "dcp_cf_pat",
- "dcp_cfg",
- "dcp_dataflow",
- "dcp_ir",
- "dcp_ir_to_cfg",
- "dcp_ofile",
- "dcp_reorder",
- "dcp_tidy",
-]
-
-[[package]]
-name = "dcp_abi"
-version = "0.1.0"
-
-[[package]]
-name = "dcp_armv8_to_ir"
-version = "0.1.0"
-dependencies = [
  "capstone",
- "dcp_abi",
- "dcp_ir",
-]
-
-[[package]]
-name = "dcp_cf_pat"
-version = "0.1.0"
-dependencies = [
- "dcp_ir",
-]
-
-[[package]]
-name = "dcp_cfg"
-version = "0.1.0"
-
-[[package]]
-name = "dcp_dataflow"
-version = "0.1.0"
-dependencies = [
- "dcp_abi",
- "dcp_cfg",
- "dcp_ir",
- "dcp_ir_to_cfg",
-]
-
-[[package]]
-name = "dcp_ir"
-version = "0.1.0"
-
-[[package]]
-name = "dcp_ir_to_cfg"
-version = "0.1.0"
-dependencies = [
- "dcp_cfg",
- "dcp_ir",
-]
-
-[[package]]
-name = "dcp_ofile"
-version = "0.1.0"
-dependencies = [
  "mach_object",
 ]
 
 [[package]]
-name = "dcp_reorder"
+name = "dcp_cli"
 version = "0.1.0"
 dependencies = [
- "dcp_cfg",
- "dcp_ir",
- "dcp_ir_to_cfg",
-]
-
-[[package]]
-name = "dcp_tidy"
-version = "0.1.0"
-dependencies = [
- "dcp_ir",
+ "clap",
+ "dcp",
 ]
 
 [[package]]
@@ -317,9 +248,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.158"
+version = "1.0.159"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "771d4d9c4163ee138805e12c710dd365e4f44be8be0503cb1bb9eb989425d9c9"
+checksum = "3c04e8343c3daeec41f58990b9d77068df31209f2af111e059e9fe9646693065"
 
 [[package]]
 name = "strsim"
@@ -340,9 +271,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.10"
+version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aad1363ed6d37b84299588d62d3a7d95b5a5c2d9aad5c85609fda12afaa1f40"
+checksum = "79d9531f94112cfc3e4c8f5f02cb2b58f72c97b7efd85f70203cc6d8efda5927"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -381,7 +312,7 @@ checksum = "f9456a42c5b0d803c8cd86e73dd7cc9edd429499f37a3550d286d5e86720569f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.10",
+ "syn 2.0.12",
 ]
 
 [[package]]
