@@ -48,13 +48,13 @@ fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, entry: cfg::NodeId, 
         node = *outgoing[0];
     };
 
-    let Some(mir::Mir::Branch { cond: Some(cond), target }) = block.pop() else {
+    let Some(mir::Mir::Branch { cond: Some(mut cond), target }) = block.pop() else {
         unreachable!()
     };
 
     assert_eq!(outgoing.len(), 2);
 
-    let (a, b) =
+    let (mut a, mut b) =
         if *outgoing[0] == target.0 {
             (*outgoing[0], *outgoing[1])
         } else {
@@ -67,8 +67,18 @@ fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, entry: cfg::NodeId, 
 
     let purple = red.intersection(&blue).copied().collect();
 
-    let red: HashSet<_> = red.difference(&purple).copied().collect();
-    let blue: HashSet<_> = blue.difference(&purple).copied().collect();
+    let mut red: HashSet<_> = red.difference(&purple).copied().collect();
+    let mut blue: HashSet<_> = blue.difference(&purple).copied().collect();
+    
+    // Move return statements towards the end
+    for node in &red {
+        if matches!(nodes[*node].code.last(), Some(lir::Lir::Return(_))) {
+            (red, blue) = (blue, red);
+            (a, b) = (b, a);
+            cond = cond.neg();
+            break;
+        }
+    }
 
     if !red.is_empty() && !blue.is_empty() {
         let mut true_then = Vec::new();
