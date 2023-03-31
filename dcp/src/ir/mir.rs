@@ -137,153 +137,246 @@ impl std::fmt::Display for Mir {
     }
 }
 
-impl Mir {
-    pub fn append_used_labels(&self, labels: &mut HashSet<lir::Label>) {
-        match self {
-            Mir::Break | Mir::Continue | Mir::Return(_) | Mir::Assign { .. } | Mir::Label(_) => {},
-            Mir::Branch { target, .. } => {
-                labels.insert(*target);
-            }
-            Mir::If { true_then, false_then, .. } => {
-                append_used_labels(true_then, labels);
-                append_used_labels(false_then, labels);
-            }
-            Mir::Loop { code } => {
-                append_used_labels(code, labels);
-            }
-            Mir::While { code, .. } => {
-                append_used_labels(code, labels);
-            }
-            Mir::For { inc, code, .. } => {
-                append_used_labels(inc, labels);
-                append_used_labels(code, labels);
-            }
+pub trait MirVisitor {
+    fn visit_block(&mut self, code: &[Mir]) {
+        for stmt in code {
+            self.visit(stmt);
         }
+    }
+
+    fn visit(&mut self, stmt: &Mir) {
+        match stmt {
+            Mir::Break => self.visit_break(),
+            Mir::Continue => self.visit_continue(),
+            Mir::Return(expr) => self.visit_return(expr),
+            Mir::Assign { src, dst } => self.visit_assign(dst, src),
+            Mir::Label(label) => self.visit_label(*label),
+            Mir::Branch { cond, target } => self.visit_branch(cond.as_ref(), *target),
+            Mir::If { cond, true_then, false_then } => self.visit_if(cond, true_then, false_then),
+            Mir::Loop { code } => self.visit_loop(code),
+            Mir::While { guard, code } => self.visit_while(guard, code),
+            Mir::For { guard, inc, code } => self.visit_for(guard, inc, code),
+        }
+    }
+
+    fn visit_break(&mut self) {}
+    fn visit_continue(&mut self) {}
+    fn visit_return(&mut self, _expr: &expr::Expr) {}
+    fn visit_assign(&mut self, _dst: &expr::Expr, _src: &expr::Expr) {}
+    fn visit_label(&mut self, _label: lir::Label) {}
+    fn visit_branch(&mut self, _cond: Option<&expr::Expr>, _target: lir::Label) {}
+    
+    fn visit_if(&mut self, _cond: &expr::Expr, true_then: &[Mir], false_then: &[Mir]) {
+        self.visit_block(true_then);
+        self.visit_block(false_then);
+    }
+
+    fn visit_loop(&mut self, code: &[Mir]) {
+        self.visit_block(code);
+    }
+
+    fn visit_while(&mut self, _guard: &expr::Expr, code: &[Mir]) {
+        self.visit_block(code);
+    }
+
+    fn visit_for(&mut self, _guard: &expr::Expr, inc: &[Mir], code: &[Mir]) {
+        self.visit_block(inc);
+        self.visit_block(code);
     }
 }
 
-fn append_used_labels(code: &[Mir], labels: &mut HashSet<lir::Label>) {
-    for stmt in code {
-        stmt.append_used_labels(labels);
+pub enum MVMAction {
+    Keep,
+    Remove,
+    Replace(Mir),
+    ReplaceSkip(Mir),
+}
+
+pub trait MirVisitorMut {
+    fn pre_block_visit(&mut self, _code: &mut Vec<Mir>) {}
+
+    fn visit_block(&mut self, code: &mut Vec<Mir>) {
+        self.pre_block_visit(code);
+
+        let mut i = 0;
+        while i < code.len() {
+            match self.visit(&mut code[i]) {
+                MVMAction::Keep => i += 1,
+                MVMAction::Remove => {
+                    code.remove(i);
+                }
+                MVMAction::Replace(new) => {
+                    code[i] = new;
+                }
+                MVMAction::ReplaceSkip(new) => {
+                    code[i] = new;
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    fn visit(&mut self, stmt: &mut Mir) -> MVMAction {
+        match stmt {
+            Mir::Break => self.visit_break(),
+            Mir::Continue => self.visit_continue(),
+            Mir::Return(expr) => self.visit_return(expr),
+            Mir::Assign { src, dst } => self.visit_assign(dst, src),
+            Mir::Label(label) => self.visit_label(*label),
+            Mir::Branch { cond, target } => self.visit_branch(cond.as_mut(), *target),
+            Mir::If { cond, true_then, false_then } => self.visit_if(cond, true_then, false_then),
+            Mir::Loop { code } => self.visit_loop(code),
+            Mir::While { guard, code } => self.visit_while(guard, code),
+            Mir::For { guard, inc, code } => self.visit_for(guard, inc, code),
+        }
+    }
+
+    fn visit_expr(&mut self, _expr: &mut expr::Expr) {}
+
+    fn visit_break(&mut self) -> MVMAction { MVMAction::Keep }
+    fn visit_continue(&mut self) -> MVMAction { MVMAction::Keep }
+    fn visit_return(&mut self, expr: &mut expr::Expr) -> MVMAction {
+        self.visit_expr(expr);
+        MVMAction::Keep
+    }
+    fn visit_assign(&mut self, dst: &mut expr::Expr, src: &mut expr::Expr) -> MVMAction {
+        self.visit_expr(dst);
+        self.visit_expr(src);
+        MVMAction::Keep
+    }
+    fn visit_label(&mut self, _label: lir::Label) -> MVMAction { MVMAction::Keep }
+    fn visit_branch(&mut self, cond: Option<&mut expr::Expr>, _target: lir::Label) -> MVMAction {
+        if let Some(cond) = cond {
+            self.visit_expr(cond);
+        }
+        MVMAction::Keep
+    }
+    
+    fn visit_if(&mut self, cond: &mut expr::Expr, true_then: &mut Vec<Mir>, false_then: &mut Vec<Mir>) -> MVMAction {
+        self.visit_expr(cond);
+        self.visit_block(true_then);
+        self.visit_block(false_then);
+        MVMAction::Keep
+    }
+
+    fn visit_loop(&mut self, code: &mut Vec<Mir>) -> MVMAction {
+        self.visit_block(code);
+        MVMAction::Keep
+    }
+
+    fn visit_while(&mut self, guard: &mut expr::Expr, code: &mut Vec<Mir>) -> MVMAction {
+        self.visit_expr(guard);
+        self.visit_block(code);
+        MVMAction::Keep
+    }
+
+    fn visit_for(&mut self, guard: &mut expr::Expr, inc: &mut Vec<Mir>, code: &mut Vec<Mir>) -> MVMAction {
+        self.visit_expr(guard);
+        self.visit_block(inc);
+        self.visit_block(code);
+        MVMAction::Keep
     }
 }
 
 pub fn used_labels(code: &[Mir]) -> HashSet<lir::Label> {
-    let mut labels = HashSet::new();
-    append_used_labels(code, &mut labels);
-    labels
+    struct UsedLabelVisitor {
+        labels: HashSet<lir::Label>
+    }
+
+    impl MirVisitor for UsedLabelVisitor {
+        fn visit_branch(&mut self, _cond: Option<&expr::Expr>, target: lir::Label) {
+            self.labels.insert(target);
+        }
+    }
+
+    let mut visitor = UsedLabelVisitor { labels: HashSet::new() };
+    visitor.visit_block(code);
+    visitor.labels
 }
 
 pub fn defined_labels(code: &[Mir]) -> HashSet<lir::Label> {
-    let mut labels = HashSet::new();
-    append_labels(code, &mut labels);
-    labels
-}
+    struct DefLabelVisitor {
+        labels: HashSet<lir::Label>
+    }
 
-pub fn append_labels(code: &[Mir], labels: &mut HashSet<lir::Label>) {
-    for stmt in code {
-        match stmt {
-            Mir::Label(label) => {
-                labels.insert(*label);
-            }
-            Mir::For { inc, code, .. } => {
-                append_labels(inc, labels);
-                append_labels(code, labels);
-            }
-            Mir::Loop { code } => append_labels(code, labels),
-            Mir::While { code, .. } => append_labels(code, labels),
-            Mir::If { true_then, false_then, .. } => {
-                append_labels(true_then, labels);
-                append_labels(false_then, labels);
-            }
-            Mir::Assign { .. } | Mir::Return(_) | Mir::Branch { .. } | Mir::Break | Mir::Continue => {}
+    impl MirVisitor for DefLabelVisitor {
+        fn visit_label(&mut self, label: lir::Label) {
+            self.labels.insert(label);
         }
     }
-}
 
-fn trim_labels_in(code: &mut Vec<Mir>, used: &HashSet<lir::Label>) {
-    let mut i = 0;
-    while i < code.len() {
-        i += 1;
-        match &mut code[i - 1] {
-            Mir::Break | Mir::Continue | Mir::Return(_) | Mir::Assign { .. } | Mir::Branch { .. } => {},
-            Mir::Label(label) if !used.contains(label) => {
-                code.remove(i - 1);
-                i -= 1;
-            }
-            Mir::Label(_) => {}
-            Mir::If { true_then, false_then, .. } => {
-                trim_labels_in(true_then, used);
-                trim_labels_in(false_then, used);
-            }
-            Mir::Loop { code } => {
-                trim_labels_in(code, used);
-            }
-            Mir::While { code, .. } => {
-                trim_labels_in(code, used);
-            }
-            Mir::For { inc, code, .. } => {
-                trim_labels_in(inc, used);
-                trim_labels_in(code, used);
-            }
-        }
-    }
+    let mut visitor = DefLabelVisitor { labels: HashSet::new() };
+    visitor.visit_block(code);
+    visitor.labels
 }
 
 pub fn trim_labels(code: &mut Vec<Mir>) {
-    trim_labels_in(code, &used_labels(code));
-}
+    struct TrimLabelVisitor {
+        used: HashSet<lir::Label>
+    }
 
-pub fn compress_control_flow(code: &mut Vec<Mir>) {
-    let mut i = 0;
-    while i < code.len() {
-        i += 1;
-        match &mut code[i - 1] {
-            Mir::Break | Mir::Continue | Mir::Return(_) | Mir::Assign { .. } | Mir::Label(_) => {},
-            Mir::Branch { target, .. } => {
-                let target = *target;
-
-                let mut j = i;
-                while j < code.len() {
-                    match &code[j] {
-                        Mir::Label(label) if *label == target => {
-                            code.remove(i - 1);
-                            i = 0; // Redo
-                            break
-                        }
-                        Mir::Label(_) => j += 1,
-                        _ => break
-                    }
-                }
-            }
-            Mir::If { true_then, false_then, .. } => {
-                compress_control_flow(true_then);
-                compress_control_flow(false_then);
-            }
-            Mir::Loop { code } => {
-                compress_control_flow(code);
-            }
-            Mir::While { code, .. } => {
-                compress_control_flow(code);
-            }
-            Mir::For { inc, code, .. } => {
-                compress_control_flow(inc);
-                compress_control_flow(code);
+    impl MirVisitorMut for TrimLabelVisitor {
+        fn visit_label(&mut self, label: lir::Label) -> MVMAction {
+            if self.used.contains(&label) {
+                MVMAction::Keep
+            } else {
+                MVMAction::Remove
             }
         }
     }
+
+    let mut visitor = TrimLabelVisitor { used: used_labels(code) };
+    visitor.visit_block(code);
 }
 
-fn cull_fallthrough_jumps_with_end_scope(code: &mut Vec<Mir>, end: &HashSet<lir::Label>) {
-    while let Some(Mir::Branch { target, .. }) = code.last() && end.contains(target) {
-        code.pop();
+pub fn compress_control_flow(code: &mut Vec<Mir>) {
+    struct ControlFlowCompressVisitor;
+
+    impl MirVisitorMut for ControlFlowCompressVisitor {
+        fn pre_block_visit(&mut self, code: &mut Vec<Mir>) {
+            let mut i = 0;
+            'outer: while i < code.len() {
+                let Mir::Branch { target, .. } = &code[i] else {
+                    i += 1;
+                    continue
+                };
+
+
+                let mut j = i + 1;
+                while j < code.len() {
+                    let Mir::Label(label) = &code[j] else {
+                        break
+                    };
+
+                    if label == target {
+                        code.remove(i);
+                        i = 0;
+                        continue 'outer
+                    }
+
+                    j += 1;
+                }
+
+                i += 1;
+            }
+        }
+    }
+
+    ControlFlowCompressVisitor.visit_block(code)
+}
+
+fn cull_fallthrough_jumps_with_end_scope(code: &mut Vec<Mir>, end: Option<&HashSet<lir::Label>>) {
+    if let Some(end) = end {
+        while let Some(Mir::Branch { target, .. }) = code.last() && end.contains(target) {
+            code.pop();
+        }
     }
 
     let mut i = 0;
     while i < code.len() {
         match &mut code[i] {
             Mir::If { .. } => {
-                let mut new = end.clone();
+                let mut new = end.map_or_else(HashSet::new, HashSet::clone);
 
                 let mut j = i + 1;
                 while let Some(Mir::Label(label)) = code.get(j) {
@@ -295,15 +388,15 @@ fn cull_fallthrough_jumps_with_end_scope(code: &mut Vec<Mir>, end: &HashSet<lir:
                     unreachable!()
                 };
                 
-                cull_fallthrough_jumps_with_end_scope(true_then, &new);
-                cull_fallthrough_jumps_with_end_scope(false_then, &new);
+                cull_fallthrough_jumps_with_end_scope(true_then, Some(&new));
+                cull_fallthrough_jumps_with_end_scope(false_then, Some(&new));
             }
             Mir::Loop { code } | Mir::While { code, .. } => {
-                cull_fallthrough_jumps_with_end_scope(code, &HashSet::new());
+                cull_fallthrough_jumps_with_end_scope(code, None);
             }
             Mir::For { inc, code, .. } => {
-                cull_fallthrough_jumps_with_end_scope(inc, &HashSet::new());
-                cull_fallthrough_jumps_with_end_scope(code, &HashSet::new());
+                cull_fallthrough_jumps_with_end_scope(inc, None);
+                cull_fallthrough_jumps_with_end_scope(code, None);
             }
             Mir::Assign { .. } |  Mir::Branch { .. } | Mir::Return(_) |
             Mir::Label(_) | Mir::Break | Mir::Continue => {}
@@ -314,34 +407,17 @@ fn cull_fallthrough_jumps_with_end_scope(code: &mut Vec<Mir>, end: &HashSet<lir:
 }
 
 pub fn cull_fallthrough_jumps(code: &mut Vec<Mir>) {
-    cull_fallthrough_jumps_with_end_scope(code, &HashSet::new());
+    cull_fallthrough_jumps_with_end_scope(code, None);
 }
 
 pub fn collapse_cmp(code: &mut Vec<Mir>) {
-    for stmt in code {
-        match stmt {
-            Mir::Assign { src, dst } => {
-                src.collapse_cmp();
-                dst.collapse_cmp();
-            }
-            Mir::Branch { cond: Some(cond), .. } => cond.collapse_cmp(),
-            Mir::Return(x) => x.collapse_cmp(),
-            Mir::If { cond, true_then, false_then } => {
-                cond.collapse_cmp();
-                collapse_cmp(true_then);
-                collapse_cmp(false_then);
-            }
-            Mir::Loop { code } => collapse_cmp(code),
-            Mir::While { guard, code } => {
-                guard.collapse_cmp();
-                collapse_cmp(code);
-            }
-            Mir::For { guard, inc, code } => {
-                guard.collapse_cmp();
-                collapse_cmp(inc);
-                collapse_cmp(code);
-            }
-            Mir::Break | Mir::Continue | Mir::Label(_) | Mir::Branch { cond: None, .. } => {}
+    struct CollapseCmpVisitor;
+
+    impl MirVisitorMut for CollapseCmpVisitor {
+        fn visit_expr(&mut self, expr: &mut expr::Expr) {
+            expr.collapse_cmp();
         }
     }
+
+    CollapseCmpVisitor.visit_block(code)
 }
