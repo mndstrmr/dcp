@@ -481,3 +481,25 @@ pub fn inline_terminating_if(code: &mut Vec<Mir>) {
 
     TerminatingIfVisitor.visit_block(code)
 }
+
+pub fn contains_continue(code: &[Mir]) -> bool {
+    struct ContainsContinue(bool);
+    
+    impl MirVisitor for ContainsContinue {
+        fn visit_block(&mut self, code: &[Mir]) {
+            let mut i = 0;
+            while i < code.len() && !self.0 {
+                self.visit(&code[i]);
+                i += 1;
+            }
+        }
+
+        fn visit_continue(&mut self) {
+            self.0 = true;
+        }
+    }
+
+    let mut visitor = ContainsContinue(false);
+    visitor.visit_block(code);
+    visitor.0
+}
