@@ -16,7 +16,6 @@ mod cfg_gen;
 pub use cfg_gen::*;
 mod dataflow;
 pub use dataflow::*;
-mod loops;
-pub use loops::*;
+pub mod loop_detect;
 mod order;
 pub use order::*;

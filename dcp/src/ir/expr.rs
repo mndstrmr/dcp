@@ -106,6 +106,10 @@ impl std::fmt::Display for Expr {
 }
 
 impl Expr {
+    pub fn take(&mut self) -> Expr {
+        std::mem::replace(self, Expr::Bool(false))
+    }
+
     pub fn neg(&self) -> Expr {
         match self {
             Expr::Bool(val) => Expr::Bool(!val),
