@@ -1,3 +1,5 @@
+use crate::ty;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     Not,
@@ -73,7 +75,10 @@ pub enum Expr {
     Name(&'static str),
     Num(i64),
     Bool(bool),
-    Deref(Box<Expr>),
+    Deref {
+        ptr: Box<Expr>,
+        size: ty::Size
+    },
     Call {
         func: Box<Expr>,
         args: Vec<Expr>
@@ -96,7 +101,7 @@ impl std::fmt::Display for Expr {
             Expr::Name(name) => write!(f, "{}", name),
             Expr::Num(num) => write!(f, "{}", num),
             Expr::Bool(b) => write!(f, "{}", b),
-            Expr::Deref(expr) => write!(f, "*{}", expr),
+            Expr::Deref { ptr, size } => write!(f, "*{size} {}", ptr),
             Expr::Unary { op, expr } if op.is_cmp() => write!(f, "{}.{}", expr, op),
             Expr::Unary { op, expr } => write!(f, "{}{}", op, expr),
             Expr::Binary { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
@@ -142,7 +147,7 @@ impl Expr {
             Expr::Unary { expr, .. } => expr.count_reads(name),
             Expr::Bool(_) => 0,
             Expr::Num(_) => 0,
-            Expr::Deref(expr) => expr.count_reads(name),
+            Expr::Deref { ptr, .. } => ptr.count_reads(name),
             Expr::Call { func, args } => args.iter().fold(func.count_reads(name), |prev, x| prev + x.count_reads(name))
         }
     }
@@ -156,7 +161,7 @@ impl Expr {
     pub fn append_read_names_rhs(&self, names: &mut Vec<&str>) {
         match self {
             Expr::Name(name) => names.push(name.clone()),
-            Expr::Deref(expr) => expr.append_read_names_rhs(names),
+            Expr::Deref { ptr, .. } => ptr.append_read_names_rhs(names),
             Expr::Unary { expr, .. } => expr.append_read_names_rhs(names),
             Expr::Binary { lhs, rhs, .. } => {
                 lhs.append_read_names_rhs(names);
@@ -189,7 +194,7 @@ impl Expr {
                 rhs.replace_name(name, expr);
             }
             Expr::Unary { expr: uexpr, .. } => uexpr.replace_name(name, expr),
-            Expr::Deref(dexpr) => dexpr.replace_name(name, expr),
+            Expr::Deref { ptr, .. } => ptr.replace_name(name, expr),
             Expr::Call { func, args } => {
                 func.replace_name(name, expr);
                 for arg in args {
@@ -217,7 +222,7 @@ impl Expr {
                 lhs.collapse_cmp();
                 rhs.collapse_cmp();
             }
-            Expr::Deref(x) => x.collapse_cmp(),
+            Expr::Deref { ptr, .. } => ptr.collapse_cmp(),
             Expr::Call { func, args } => {
                 func.collapse_cmp();
                 for arg in args {

@@ -8,7 +8,7 @@ use capstone::{
     prelude::*,
 };
 
-use crate::{expr, lir};
+use crate::{expr, lir, ty};
 
 const CMP: &'static str = "cmp";
 
@@ -30,6 +30,21 @@ fn name(reg: RegId) -> expr::Expr {
         x @ 185..=213 => X[x as usize - 185],
         _ => panic!("bad reg {:?}", reg),
     })
+}
+
+fn reg_size(reg: RegId) -> ty::Size {
+    match reg.0 as u32 {
+        Arm64Reg::ARM64_REG_WZR => ty::Size::Size32,
+        Arm64Reg::ARM64_REG_XZR => ty::Size::Size64,
+
+        Arm64Reg::ARM64_REG_FP => ty::Size::Size64,
+        Arm64Reg::ARM64_REG_LR => ty::Size::Size64,
+        Arm64Reg::ARM64_REG_SP => ty::Size::Size64,
+
+        216..=244 => ty::Size::Size64,
+        185..=213 => ty::Size::Size32,
+        _ => panic!("bad reg {:?}", reg),
+    }
 }
 
 fn cc_to_lir(cc: Arm64CC) -> Option<expr::UnaryOp> {
@@ -61,7 +76,19 @@ fn op_to_mem_addr(op: &ArchOperand) -> expr::Expr {
     }
 }
 
-fn op_to_expr(op: &ArchOperand) -> expr::Expr {
+fn op_reg_size(op: &ArchOperand) -> ty::Size {
+    let op = match op {
+        ArchOperand::Arm64Operand(op) => op,
+        _ => panic!("not arm64?")
+    };
+
+    match op.op_type {
+        Arm64OperandType::Reg(reg) => reg_size(reg),
+        _ => todo!("Operand: {:?}", op)
+    }
+}
+
+fn op_to_non_mem(op: &ArchOperand) -> expr::Expr {
     let op = match op {
         ArchOperand::Arm64Operand(op) => op,
         _ => panic!("not arm64?")
@@ -75,7 +102,29 @@ fn op_to_expr(op: &ArchOperand) -> expr::Expr {
                 name(reg)
             }
         Arm64OperandType::Imm(imm) => expr::Expr::Num(imm),
-        Arm64OperandType::Mem(mem) => expr::Expr::Deref(Box::new(mem_to_lir_addr(mem))),
+        Arm64OperandType::Mem(_) => panic!("Memory operand"),
+        _ => todo!("Operand: {:?}", op)
+    }
+}
+
+fn op_to_expr(op: &ArchOperand, size: ty::Size) -> expr::Expr {
+    let op = match op {
+        ArchOperand::Arm64Operand(op) => op,
+        _ => panic!("not arm64?")
+    };
+
+    match op.op_type {
+        Arm64OperandType::Reg(reg) =>
+            if reg.0 == Arm64Reg::ARM64_REG_WZR as u16 || reg.0 == Arm64Reg::ARM64_REG_XZR as u16 {
+                expr::Expr::Num(0)
+            } else {
+                name(reg)
+            }
+        Arm64OperandType::Imm(imm) => expr::Expr::Num(imm),
+        Arm64OperandType::Mem(mem) => expr::Expr::Deref {
+            ptr: Box::new(mem_to_lir_addr(mem)),
+            size
+        },
         _ => todo!("Operand: {:?}", op)
     }
 }
@@ -137,9 +186,9 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
 
         match Arm64Insn::from(insn.id().0) {
             Arm64Insn::ARM64_INS_SUB => {
-                let dst = op_to_expr(&ops[0]);
-                let src1 = op_to_expr(&ops[1]);
-                let src2 = op_to_expr(&ops[2]);
+                let dst = op_to_non_mem(&ops[0]);
+                let src1 = op_to_non_mem(&ops[1]);
+                let src2 = op_to_non_mem(&ops[2]);
                 block.push(lir::Lir::Assign {
                     dst,
                     src: expr::Expr::Binary {
@@ -150,9 +199,9 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
                 });
             }
             Arm64Insn::ARM64_INS_ADD => {
-                let dst = op_to_expr(&ops[0]);
-                let src1 = op_to_expr(&ops[1]);
-                let src2 = op_to_expr(&ops[2]);
+                let dst = op_to_non_mem(&ops[0]);
+                let src1 = op_to_non_mem(&ops[1]);
+                let src2 = op_to_non_mem(&ops[2]);
                 block.push(lir::Lir::Assign {
                     dst,
                     src: expr::Expr::Binary {
@@ -163,22 +212,22 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
                 });
             }
             Arm64Insn::ARM64_INS_MOV | Arm64Insn::ARM64_INS_LDR | Arm64Insn::ARM64_INS_LDUR => {
-                let dst = op_to_expr(&ops[0]);
-                let src = op_to_expr(&ops[1]);
+                let dst = op_to_non_mem(&ops[0]);
+                let src = op_to_expr(&ops[1], op_reg_size(&ops[0]));
                 block.push(lir::Lir::Assign {
                     dst, src
                 });
             }
             Arm64Insn::ARM64_INS_STR | Arm64Insn::ARM64_INS_STUR => {
-                let dst = op_to_expr(&ops[1]);
-                let src = op_to_expr(&ops[0]);
+                let dst = op_to_expr(&ops[1], op_reg_size(&ops[0]));
+                let src = op_to_non_mem(&ops[0]);
                 block.push(lir::Lir::Assign {
                     dst, src
                 });
             }
             Arm64Insn::ARM64_INS_CMP => {
-                let src1 = op_to_expr(&ops[0]);
-                let src2 = op_to_expr(&ops[1]);
+                let src1 = op_to_non_mem(&ops[0]);
+                let src2 = op_to_non_mem(&ops[1]);
 
                 block.push(lir::Lir::Assign {
                     dst: expr::Expr::Name(CMP),
@@ -190,9 +239,9 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
                 });
             }
             Arm64Insn::ARM64_INS_SUBS => {
-                let dst = op_to_expr(&ops[0]);
-                let src1 = op_to_expr(&ops[1]);
-                let src2 = op_to_expr(&ops[2]);
+                let dst = op_to_non_mem(&ops[0]);
+                let src1 = op_to_non_mem(&ops[1]);
+                let src2 = op_to_non_mem(&ops[2]);
 
                 block.push(lir::Lir::Assign {
                     dst: expr::Expr::Name(CMP),
@@ -224,9 +273,9 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
                     }),
                 };
 
-                let dst = op_to_expr(&ops[0]);
-                let src1 = op_to_expr(&ops[1]);
-                let src2 = op_to_expr(&ops[2]);
+                let dst = op_to_non_mem(&ops[0]);
+                let src1 = op_to_non_mem(&ops[1]);
+                let src2 = op_to_non_mem(&ops[2]);
 
                 let label1 = block.new_label();
                 let label2 = block.new_label();
@@ -299,41 +348,55 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
             }
             // FIXME: This is wrong. What if it updates itself?
             Arm64Insn::ARM64_INS_STP => {
-                let src1 = op_to_expr(&ops[0]);
-                let src2 = op_to_expr(&ops[1]);
+                let src1 = op_to_non_mem(&ops[0]);
+                let src2 = op_to_non_mem(&ops[1]);
                 let dest = op_to_mem_addr(&ops[2]);
+                let size = op_reg_size(&ops[0]);
 
                 block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Deref(Box::new(dest.clone())),
+                    dst: expr::Expr::Deref {
+                        ptr: Box::new(dest.clone()),
+                        size
+                    },
                     src: src1,
                 });
 
                 block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Deref(Box::new(expr::Expr::Binary {
-                        op: expr::BinaryOp::Add,
-                        lhs: Box::new(dest),
-                        rhs: Box::new(expr::Expr::Num(8)), // FIXME: Determine real size
-                    })),
+                    dst: expr::Expr::Deref {
+                        ptr: Box::new(expr::Expr::Binary {
+                            op: expr::BinaryOp::Add,
+                            lhs: Box::new(dest),
+                            rhs: Box::new(expr::Expr::Num(8)),
+                        }),
+                        size
+                    },
                     src: src2,
                 });
             }
             Arm64Insn::ARM64_INS_LDP => {
-                let src1 = op_to_expr(&ops[0]);
-                let src2 = op_to_expr(&ops[1]);
+                let src1 = op_to_non_mem(&ops[0]);
+                let src2 = op_to_non_mem(&ops[1]);
                 let dest = op_to_mem_addr(&ops[2]);
+                let size = op_reg_size(&ops[0]);
 
                 block.push(lir::Lir::Assign {
                     dst: src1,
-                    src: expr::Expr::Deref(Box::new(dest.clone())),
+                    src: expr::Expr::Deref {
+                        ptr: Box::new(dest.clone()),
+                        size
+                    },
                 });
 
                 block.push(lir::Lir::Assign {
                     dst: src2,
-                    src: expr::Expr::Deref(Box::new(expr::Expr::Binary {
-                        op: expr::BinaryOp::Add,
-                        lhs: Box::new(dest),
-                        rhs: Box::new(expr::Expr::Num(8)), // FIXME: Determine real size
-                    })),
+                    src: expr::Expr::Deref {
+                        ptr: Box::new(expr::Expr::Binary {
+                            op: expr::BinaryOp::Add,
+                            lhs: Box::new(dest),
+                            rhs: Box::new(expr::Expr::Num(8)),
+                        }),
+                        size
+                    },
                 });
             }
             _ => todo!(
