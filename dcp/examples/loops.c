@@ -16,7 +16,7 @@ int main() {
                 a -= b;
             } else {
                 b = b - other(3);
-                continue;
+                break;
             }
         }
     }

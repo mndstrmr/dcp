@@ -403,7 +403,12 @@ fn cull_fallthrough_jumps_with_end_scope(code: &mut Vec<Mir>, end: Option<&HashS
     while i < code.len() {
         match &mut code[i] {
             Mir::If { .. } => {
-                let mut new = end.map_or_else(HashSet::new, HashSet::clone);
+                let mut new =
+                    if i == code.len() - 1 {
+                        end.map_or_else(HashSet::new, HashSet::clone)
+                    } else {
+                        HashSet::new()
+                    };
 
                 let mut j = i + 1;
                 while let Some(Mir::Label(label)) = code.get(j) {

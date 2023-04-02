@@ -81,6 +81,7 @@ fn main() {
         dcp::mir::inline_terminating_if(&mut mir.code);
         dcp::loop_detect::insert_loops(&mut mir.code);
         dcp::loop_detect::gotos_to_loop_continues(&mut mir.code);
+        dcp::loop_detect::gotos_to_loop_breaks(&mut mir.code);
         dcp::mir::trim_labels(&mut mir.code);
         dcp::mir::unreachable_control_flow(&mut mir.code);
         dcp::loop_detect::step_back_breaks(&mut mir.code);

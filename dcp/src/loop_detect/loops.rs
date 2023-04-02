@@ -126,6 +126,57 @@ pub fn step_back_breaks(code: &mut Vec<mir::Mir>) {
     BreakStepBackVisitor.visit_block(code)
 }
 
+pub fn gotos_to_loop_breaks(code: &mut Vec<mir::Mir>) {
+    struct GotoToLoopBreak {
+        end: HashSet<lir::Label>
+    }
+
+    impl MirVisitorMut for GotoToLoopBreak {
+        fn visit_block(&mut self, code: &mut Vec<mir::Mir>) {
+            let mut i = 0;
+            while i < code.len() {
+                if let mir::Mir::Loop { .. } = &mut code[i] {
+                    let mut labels = HashSet::new();
+                    let mut j = i + 1;
+                    while j < code.len() {
+                        let mir::Mir::Label(label) = &code[j] else {
+                            break
+                        };
+
+                        labels.insert(*label);
+                        j += 1;
+                    }
+
+                    std::mem::swap(&mut labels, &mut self.end);
+                    self.visit(&mut code[i]);
+                    self.end = labels;
+                } else {
+                    match self.visit(&mut code[i]) {
+                        mir::MVMAction::ReplaceSkip(new) => code[i] = new,
+                        _ => {}
+                    }
+                }
+
+                i += 1;
+            }
+        }
+
+        fn visit_branch(&mut self, cond: Option<&mut expr::Expr>, target: lir::Label) -> mir::MVMAction {
+            if !self.end.contains(&target) {
+                return mir::MVMAction::Keep
+            }
+
+            if let Some(cond) = cond {
+                mir::MVMAction::ReplaceSkip(mir::Mir::If { true_then: vec![mir::Mir::Break], false_then: vec![], cond: cond.take() })
+            } else {
+                mir::MVMAction::ReplaceSkip(mir::Mir::Break)
+            }
+        }
+    }
+
+    GotoToLoopBreak { end: HashSet::new() }.visit_block(code)
+}
+
 pub fn final_continues(code: &mut Vec<mir::Mir>) {
     final_continues_with(code, false)
 }
