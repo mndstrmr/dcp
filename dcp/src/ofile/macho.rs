@@ -17,8 +17,8 @@ impl From<mach_object::MachError> for OfileErr {
 
 #[derive(Debug)]
 pub enum CodeResult<'a> {
-    UnknownBlock(&'a [u8]),
-    Functions(Vec<(Option<String>, &'a [u8])>)
+    UnknownBlock(&'a [u8], u64),
+    Functions(Vec<(Option<String>, &'a [u8], u64)>)
 }
 
 pub fn code_from(buf: &[u8]) -> Result<CodeResult, OfileErr> {
@@ -85,7 +85,7 @@ pub fn code_from(buf: &[u8]) -> Result<CodeResult, OfileErr> {
     let code = &buf[code];
 
     let Some(mut syms) = symbols else {
-        return Ok(CodeResult::UnknownBlock(code))
+        return Ok(CodeResult::UnknownBlock(code, code_vaddr as u64))
     };
 
     syms.sort_by_key(|(_, x)| *x);
@@ -94,7 +94,7 @@ pub fn code_from(buf: &[u8]) -> Result<CodeResult, OfileErr> {
     let mut functions = Vec::new();
     for ((name, start), (_, end)) in syms.iter().zip(syms.iter().skip(1)) {
         if *start >= code_vaddr && *start <= code_vaddr + code.len() {
-            functions.push((name.clone(), &code[*start - code_vaddr..*end - code_vaddr]));
+            functions.push((name.clone(), &code[*start - code_vaddr..*end - code_vaddr], *start as u64));
         }
     }
 

@@ -70,10 +70,14 @@ impl std::fmt::Display for BinaryOp {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FuncId(pub usize);
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
     Name(&'static str),
     Num(i64),
+    Func(FuncId),
     Bool(bool),
     Deref {
         ptr: Box<Expr>,
@@ -100,6 +104,7 @@ impl std::fmt::Display for Expr {
         match self {
             Expr::Name(name) => write!(f, "{}", name),
             Expr::Num(num) => write!(f, "{}", num),
+            Expr::Func(idx) => write!(f, "fn{}", idx.0),
             Expr::Bool(b) => write!(f, "{}", b),
             Expr::Deref { ptr, size } => write!(f, "*{size} {}", ptr),
             Expr::Unary { op, expr } if op.is_cmp() => write!(f, "{}.{}", expr, op),
@@ -143,6 +148,7 @@ impl Expr {
     pub fn count_reads(&self, name: &str) -> usize {
         match self {
             Expr::Name(nm) => (*nm == name) as usize,
+            Expr::Func(_) => 0,
             Expr::Binary { lhs, rhs, .. } => lhs.count_reads(name) + rhs.count_reads(name),
             Expr::Unary { expr, .. } => expr.count_reads(name),
             Expr::Bool(_) => 0,
@@ -173,7 +179,7 @@ impl Expr {
                     arg.append_read_names_rhs(names);
                 }
             }
-            Expr::Num(_) | Expr::Bool(_) => {}
+            Expr::Num(_) | Expr::Bool(_) | Expr::Func(_) => {}
         }
     }
 
@@ -188,7 +194,7 @@ impl Expr {
     pub fn replace_name(&mut self, name: &str, expr: &Expr) {
         match self {
             Expr::Name(name_) if *name_ == name => *self = expr.clone(),
-            Expr::Bool(_) | Expr::Num(_) | Expr::Name(_) => (),
+            Expr::Bool(_) | Expr::Num(_) | Expr::Name(_) | Expr::Func(_) => (),
             Expr::Binary { lhs, rhs, .. } => {
                 lhs.replace_name(name, expr);
                 rhs.replace_name(name, expr);
@@ -206,8 +212,7 @@ impl Expr {
 
     pub fn collapse_cmp(&mut self) {
         match self {
-            Expr::Name(_) => {},
-            Expr::Num(_) | Expr::Bool(_) => {},
+            Expr::Name(_) | Expr::Num(_) | Expr::Bool(_) | Expr::Func(_) => {},
             Expr::Unary { expr, op } if op.is_cmp() => {
                 if let Expr::Binary { op: BinaryOp::Cmp, lhs, rhs } = expr.as_mut() {
                     lhs.collapse_cmp();

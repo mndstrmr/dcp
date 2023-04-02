@@ -44,19 +44,22 @@ impl Mir {
     }
 }
 
-pub struct MirBlock {
+pub struct MirFunc {
+    pub args: Vec<&'static str>,
+    pub results: Vec<&'static str>,
     pub code: Vec<Mir>
 }
 
-impl MirBlock {
-    pub fn new() -> MirBlock {
-        MirBlock {
-            code: Vec::new()
+impl MirFunc {
+    pub fn new(args: Vec<&'static str>, results: Vec<&'static str>, code: Vec<Mir>) -> MirFunc {
+        MirFunc {
+            args, results,
+            code
         }
     }
 }
 
-impl std::fmt::Display for MirBlock {
+impl std::fmt::Display for MirFunc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "block {{")?;
         for stmt in &self.code {

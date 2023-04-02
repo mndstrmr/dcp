@@ -12,10 +12,9 @@ pub mod cfg;
 mod ir;
 pub use ir::*;
 
-mod cfg_gen;
-pub use cfg_gen::*;
+mod local_cfg;
+pub use local_cfg::*;
+
 mod dataflow;
 pub use dataflow::*;
 pub mod loop_detect;
-mod order;
-pub use order::*;

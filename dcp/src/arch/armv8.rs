@@ -155,7 +155,7 @@ fn mem_to_lir_addr(mem: Arm64OpMem) -> expr::Expr {
     }
 }
 
-pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
+pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>) -> Result<lir::LirFunc, String> {
     let cs = Capstone::new()
         .arm64()
         .mode(arch::arm64::ArchMode::Arm)
@@ -163,7 +163,7 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
         .build()
         .expect("Could not build cs object");
 
-    let insns = cs.disasm_all(data, 0).expect("Could not disassemble");
+    let insns = cs.disasm_all(data, base).expect("Could not disassemble");
 
     let mut block = lir::LirFuncBuilder::new();
     let mut addr_to_label = HashMap::new();
@@ -279,39 +279,85 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
 
                 let label1 = block.new_label();
                 let label2 = block.new_label();
+                let label3 = block.new_label();
 
                 block.push(lir::Lir::Branch {
                     cond,
-                    target: label1.clone(),
+                    target: label2.clone(),
                 });
+                block.push(lir::Lir::Label(label1));
                 block.push(lir::Lir::Assign {
                     dst: dst.clone(),
                     src: src2,
                 });
                 block.push(lir::Lir::Branch {
                     cond: None,
-                    target: label2.clone(),
+                    target: label3.clone(),
                 });
-                block.push(lir::Lir::Label(label1));
+                block.push(lir::Lir::Label(label2));
                 block.push(lir::Lir::Assign {
                     dst,
                     src: src1,
                 });
-                block.push(lir::Lir::Label(label2));
+                block.push(lir::Lir::Label(label3));
+            }
+            Arm64Insn::ARM64_INS_CSET => {
+                let cond = match cc_to_lir(arch_detail.cc()) {
+                    None => expr::Expr::Num(1),
+                    Some(op) => expr::Expr::Unary {
+                        op,
+                        expr: Box::new(expr::Expr::Name(CMP)),
+                    },
+                };
+
+                let dst = op_to_non_mem(&ops[0]);
+
+                block.push(lir::Lir::Assign {
+                    dst: dst.clone(),
+                    src: cond,
+                });
+
+                // let label1 = block.new_label();
+                // let label2 = block.new_label();
+                // let label3 = block.new_label();
+
+                // block.push(lir::Lir::Branch {
+                //     cond,
+                //     target: label2.clone(),
+                // });
+                // block.push(lir::Lir::Label(label1));
+                // block.push(lir::Lir::Assign {
+                //     dst: dst.clone(),
+                //     src: expr::Expr::Num(0),
+                // });
+                // block.push(lir::Lir::Branch {
+                //     cond: None,
+                //     target: label3.clone(),
+                // });
+                // block.push(lir::Lir::Label(label2));
+                // block.push(lir::Lir::Assign {
+                //     dst,
+                //     src: expr::Expr::Num(1),
+                // });
+                // block.push(lir::Lir::Label(label3));
             }
             Arm64Insn::ARM64_INS_BL => {
                 let addr = match &ops[0] {
                     ArchOperand::Arm64Operand(Arm64Operand {
                         op_type: Arm64OperandType::Imm(val),
                         ..
-                    }) => *val as u64,
+                    }) =>
+                        match addr_to_func.get(&(*val as u64)) {
+                            Some(func) => expr::Expr::Func(*func),
+                            None => expr::Expr::Num(*val),
+                        },
                     _ => panic!("Branch operand type"),
                 };
 
                 block.push(lir::Lir::Assign {
                     dst: expr::Expr::Name(X[0]),
                     src: expr::Expr::Call {
-                        func: Box::new(expr::Expr::Num(addr as i64)),
+                        func: Box::new(addr),
                         args: vec![],
                     },
                 });
@@ -343,6 +389,30 @@ pub fn to_lir(data: &[u8], _base: u64) -> Result<lir::LirFunc, String> {
 
                 block.push(lir::Lir::Branch {
                     cond,
+                    target,
+                });
+            }
+            Arm64Insn::ARM64_INS_TBNZ => {
+                let src = op_to_non_mem(&ops[0]);
+
+                let target = match &ops[2] {
+                    ArchOperand::Arm64Operand(Arm64Operand {
+                        op_type: Arm64OperandType::Imm(val),
+                        ..
+                    }) => {
+                        if let Some(label) = addr_to_label.get(&(*val as u64)) {
+                            *label
+                        } else {
+                            let label = block.new_label();
+                            addr_to_label.insert(*val as u64, label);
+                            label
+                        }
+                    }
+                    _ => panic!("Branch operand type"),
+                };
+
+                block.push(lir::Lir::Branch {
+                    cond: Some(src),
                     target,
                 });
             }

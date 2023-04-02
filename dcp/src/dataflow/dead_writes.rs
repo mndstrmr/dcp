@@ -21,7 +21,6 @@ fn elim_dead_write_in(graph: &cfg::ControlFlowGraph, node: usize, nodes: &mut Ve
                         i -= 1;
                         nodes[node].code.remove(i);
                         changed = true;
-                        println!("!");
                         continue 'outer;
                     }
                     ReadWrite::Neither => {}

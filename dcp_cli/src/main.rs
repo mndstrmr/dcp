@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, collections::HashMap};
 
 use clap::Parser;
 
@@ -36,29 +36,40 @@ fn main() {
     };
 
     let functions = match code {
-        dcp::macho::CodeResult::UnknownBlock(unknown) => vec![(None, unknown)],
+        dcp::macho::CodeResult::UnknownBlock(unknown, addr) => vec![(None, unknown, addr)],
         dcp::macho::CodeResult::Functions(functions) => functions,
     };
 
-    let mut base = 0x1000000;
-    for (_name, code) in functions {
-        base += code.len() as u64;
+    let mut function_ids = HashMap::new();
+    for (i, (_, _, addr)) in functions.iter().enumerate() {
+        function_ids.insert(*addr, dcp::expr::FuncId(i));
+    }
 
-        let lir = dcp::armv8::to_lir(code, base).expect("Could not convert to MIA");
+    let abi = dcp::Abi {
+        callee_saved: {
+            let mut regs: Vec<_> = (19..=29).map(|x| dcp::armv8::X[x]).collect();
+            regs.push(dcp::armv8::X[29]);
+            regs.push(dcp::armv8::X[30]);
+            regs.push(dcp::armv8::X[31]);
+            regs
+        },
+        args: (0..=7).map(|x| dcp::armv8::X[x]).collect()
+    };
 
-        let mut blir = dcp::lir_to_lirnodes(lir);
-        let cfg = dcp::gen_cfg(&blir);
+    let mut global_nodes: Vec<_> = functions.iter().map(|(_name, code, addr)| {
+        let lir = dcp::armv8::to_lir(code, *addr, &function_ids).expect("Could not convert to LIR");
 
-        let abi = dcp::Abi {
-            callee_saved: {
-                let mut regs: Vec<_> = (19..=29).map(|x| dcp::armv8::X[x]).collect();
-                regs.push(dcp::armv8::X[29]);
-                regs.push(dcp::armv8::X[30]);
-                regs.push(dcp::armv8::X[31]);
-                regs
-            }
-        };
+        let blir = dcp::lir_to_lirnodes(lir);
+        let cfg = dcp::gen_local_cfg(&blir);
 
+        dcp::GlobalCfgNode::new(cfg, blir)
+    }).collect();
+
+    dcp::func_args(&mut global_nodes, &abi);
+    let (nodes, sigs): (Vec<_>, Vec<_>) = global_nodes.into_iter().map(dcp::GlobalCfgNode::split).unzip();
+
+    for (cfg, mut blir) in nodes {
+        dcp::insert_func_args(&sigs, &mut blir);
         dcp::elim_dead_writes(&cfg, &mut blir, &abi);
         dcp::inline_single_use_names(&cfg, &mut blir, &abi);
 

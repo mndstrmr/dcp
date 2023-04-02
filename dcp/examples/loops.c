@@ -1,5 +1,5 @@
-int other() {
-    return 4;
+int other(int x) {
+    return x + 3;
 }
 
 int main() {
@@ -15,7 +15,7 @@ int main() {
             if (i == 2) {
                 a -= b;
             } else {
-                b = b - other();
+                b = b - other(3);
                 continue;
             }
         }

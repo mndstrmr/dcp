@@ -4,12 +4,16 @@ pub use dead_writes::*;
 mod single_use;
 pub use single_use::*;
 
+mod func_args;
+pub use func_args::*;
+
 use std::collections::HashSet;
 
 use crate::{cfg, lir, expr};
 
 pub struct Abi {
-    pub callee_saved: Vec<&'static str>
+    pub callee_saved: Vec<&'static str>,
+    pub args: Vec<&'static str>,
 }
 
 enum ReadWrite {
