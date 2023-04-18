@@ -4,6 +4,9 @@ pub use dead_writes::*;
 mod single_use;
 pub use single_use::*;
 
+mod every_use;
+pub use every_use::*;
+
 mod func_args;
 pub use func_args::*;
 
@@ -14,6 +17,7 @@ use crate::{cfg, lir, expr};
 pub struct Abi {
     pub callee_saved: Vec<&'static str>,
     pub args: Vec<&'static str>,
+    pub eliminate: Vec<&'static str>,
 }
 
 enum ReadWrite {

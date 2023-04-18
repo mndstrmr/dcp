@@ -53,7 +53,8 @@ fn main() {
             regs.push(dcp::armv8::X[31]);
             regs
         },
-        args: (0..=7).map(|x| dcp::armv8::X[x]).collect()
+        args: (0..=7).map(|x| dcp::armv8::X[x]).collect(),
+        eliminate: vec![dcp::armv8::X[29]]
     };
 
     let mut global_nodes: Vec<_> = functions.iter().map(|(_name, code, addr)| {
@@ -70,6 +71,9 @@ fn main() {
 
     for (cfg, mut blir) in nodes {
         dcp::insert_func_args(&sigs, &mut blir);
+        for elim in &abi.eliminate {
+            dcp::elim_name(&cfg, &mut blir, &abi, elim);
+        }
         dcp::elim_dead_writes(&cfg, &mut blir, &abi);
         dcp::inline_single_use_names(&cfg, &mut blir, &abi);
 
@@ -90,6 +94,7 @@ fn main() {
         dcp::loop_detect::whiles_to_fors(&mut mir.code);
 
         dcp::mir::collapse_cmp(&mut mir.code);
+        dcp::mir::reduce_binops(&mut mir.code);
         println!("{}", mir);
     }
 }

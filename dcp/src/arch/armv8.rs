@@ -316,30 +316,6 @@ pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>)
                     dst: dst.clone(),
                     src: cond,
                 });
-
-                // let label1 = block.new_label();
-                // let label2 = block.new_label();
-                // let label3 = block.new_label();
-
-                // block.push(lir::Lir::Branch {
-                //     cond,
-                //     target: label2.clone(),
-                // });
-                // block.push(lir::Lir::Label(label1));
-                // block.push(lir::Lir::Assign {
-                //     dst: dst.clone(),
-                //     src: expr::Expr::Num(0),
-                // });
-                // block.push(lir::Lir::Branch {
-                //     cond: None,
-                //     target: label3.clone(),
-                // });
-                // block.push(lir::Lir::Label(label2));
-                // block.push(lir::Lir::Assign {
-                //     dst,
-                //     src: expr::Expr::Num(1),
-                // });
-                // block.push(lir::Lir::Label(label3));
             }
             Arm64Insn::ARM64_INS_BL => {
                 let addr = match &ops[0] {

@@ -4,8 +4,6 @@ use crate::{cfg, lir, Abi, expr};
 
 use super::{stmt_reads_or_writes, ReadWrite, reads_before_writes};
 
-// use self::{reads_before_writes, ReadWrite, stmt_reads_or_writes, Abi};
-
 // If x = a comes before b, and b depends on x, `x = a` can be removed, and b can have `x` replaced with `a` under the following conditions:
 // 1. x cannot be reassigned between a and b
 // 2. no dependency of a is reassigned between a and b

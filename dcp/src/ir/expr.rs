@@ -236,4 +236,36 @@ impl Expr {
             }
         }
     }
+
+    pub fn reduce_binops(&mut self) {
+        match self {
+            Expr::Name(_) | Expr::Num(_) | Expr::Bool(_) | Expr::Func(_) => {},
+            Expr::Unary { expr, .. } => expr.reduce_binops(),
+            Expr::Binary { lhs, rhs, op } => {
+                lhs.reduce_binops();
+                rhs.reduce_binops();
+
+                if let Expr::Num(n) = rhs.as_ref() &&
+                    let Expr::Binary { op: op2, lhs: lhs2, rhs: rhs2 } = lhs.as_mut() &&
+                    let Expr::Num(n2) = rhs2.as_ref() {
+                    match (op, op2) {
+                        (BinaryOp::Add, BinaryOp::Add) =>
+                            *self = Expr::Binary {
+                                op: BinaryOp::Add,
+                                lhs: Box::new(lhs2.take()),
+                                rhs: Box::new(Expr::Num(n + n2))
+                            },
+                        _ => {}
+                    }
+                }
+            }
+            Expr::Deref { ptr, .. } => ptr.reduce_binops(),
+            Expr::Call { func, args } => {
+                func.reduce_binops();
+                for arg in args {
+                    arg.reduce_binops();
+                }
+            }
+        }
+    }
 }

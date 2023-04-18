@@ -454,6 +454,18 @@ pub fn collapse_cmp(code: &mut Vec<Mir>) {
     CollapseCmpVisitor.visit_block(code)
 }
 
+pub fn reduce_binops(code: &mut Vec<Mir>) {
+    struct CollapseCmpVisitor;
+
+    impl MirVisitorMut for CollapseCmpVisitor {
+        fn visit_expr(&mut self, expr: &mut expr::Expr) {
+            expr.reduce_binops();
+        }
+    }
+
+    CollapseCmpVisitor.visit_block(code)
+}
+
 pub fn inline_terminating_if(code: &mut Vec<Mir>) {
     struct TerminatingIfVisitor;
 
