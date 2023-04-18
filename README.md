@@ -15,47 +15,69 @@ This is a standard rust/cargo project, hence with rust installed simply run `car
 
 ## Example
 ```c
+int other(int x) {
+    return x + 3;
+}
+
 int main() {
-    int a;
-    int b = 2;
-    if (b == 1) {
-        if (b == 3) {
-            a = 1;
-        } else {
-            a = 3;
-            for (int i = 0; i < 3; i++) {
-                a += i;
+    int a = 5;
+    int b = a + 3;
+
+    for (int i = 0; i < 5; i++) {
+        if (i > 1) {
+            if (a > b) {
+                a = a + 3;
+            }
+
+            if (i == 2) {
+                a -= b;
+            } else {
+                b = b - other(3);
+                break;
             }
         }
-    } else {
-        a = 2;
     }
+
     return a;
 }
 ```
 
-Compiled with `gcc example.c -o eaxmple`, then decompiled with `cargo run -- example`:
+Compiled with `gcc example.c -o example`, then decompiled with `cargo run -- example`:
 
 ```
 block {
     sp = (sp - 16)
-    *(sp + 12) = 0
-    *(sp + 4) = 2
-    if (*(sp + 4) != 1) {
-        *(sp + 8) = 2
-    } else {
-        if (*(sp + 4) != 3) {
-            *(sp + 8) = 3
-            *sp = 0
-            for (*sp < 3); *sp = (*sp + 1) {
-                *(sp + 8) = (*(sp + 8) + *sp)
+    *d (sp + 12) = x0
+    x0 = (*d (sp + 12) + 3)
+    sp = (sp + 16)
+    return x0
+}
+
+block {
+    sp = (sp - 48)
+    *q (sp + 32) = fp
+    *q (sp + 40) = lr
+    *d (sp + 28) = 0
+    *d (sp + 24) = 5
+    *d (sp + 20) = (*d (sp + 24) + 3)
+    *d (sp + 16) = 0
+    for (*d (sp + 16) < 5); *d (sp + 16) = (*d (sp + 16) + 1) {
+        if (*d (sp + 16) > 1) {
+            if (*d (sp + 24) > *d (sp + 20)) {
+                *d (sp + 24) = (*d (sp + 24) + 3)
             }
-        } else {
-            *(sp + 8) = 1
+            if (*d (sp + 16) != 2) {
+                *d (sp + 12) = *d (sp + 20)
+                *d (sp + 20) = (*d (sp + 12) - fn0(3))
+                break
+            }
+            *d (sp + 24) = (*d (sp + 24) - *d (sp + 20))
         }
     }
-    x0 = *(sp + 8)
-    sp = (sp + 16)
+    x0 = *d (sp + 24)
+    fp = *q (sp + 32)
+    lr = *q (sp + 40)
+    sp = (sp + 48)
     return x0
 }
 ```
