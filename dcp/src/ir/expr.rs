@@ -99,21 +99,89 @@ pub enum Expr {
     }
 }
 
+impl Expr {
+    pub fn fmt_with_precedence(&self, f: &mut std::fmt::Formatter<'_>, prec: usize) -> std::fmt::Result {
+        const REF: usize = 5;
+        const FUNC: usize = 15;
+        const UNARY: usize = 10;
+        const BINARY: usize = 4;
 
-impl std::fmt::Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Name(name) => write!(f, "{}", name),
             Expr::Num(num) => write!(f, "{}", num),
             Expr::Func(idx) => write!(f, "fn{}", idx.0),
             Expr::Bool(b) => write!(f, "{}", b),
-            Expr::Deref { ptr, size } => write!(f, "*{size} {}", ptr),
-            Expr::Ref(value) => write!(f, "&{value}"),
-            Expr::Unary { op, expr } if op.is_cmp() => write!(f, "{}.{}", expr, op),
-            Expr::Unary { op, expr } => write!(f, "{}{}", op, expr),
-            Expr::Binary { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
-            Expr::Call { func, args } => write!(f, "{}({})", func, args.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", ")),
+
+            Expr::Deref { ptr, size } => {
+                if prec >= REF {
+                    write!(f, "(*{size} ")?;
+                    ptr.fmt_with_precedence(f, REF)?;
+                    write!(f, ")")
+                } else {
+                    write!(f, "*{size} ")?;
+                    ptr.fmt_with_precedence(f, REF)
+                }
+            },
+            Expr::Ref(value) => {
+                if prec >= REF {
+                    write!(f, "(&")?;
+                    value.fmt_with_precedence(f, REF)?;
+                    write!(f, ")")
+                } else {
+                    write!(f, "&")?;
+                    value.fmt_with_precedence(f, REF)
+                }
+            }
+            Expr::Unary { op, expr } if op.is_cmp() => {
+                if prec >= UNARY {
+                    write!(f, "(")?;
+                    expr.fmt_with_precedence(f, UNARY)?;
+                    write!(f, ".{})", op)
+                } else {
+                    expr.fmt_with_precedence(f, UNARY)?;
+                    write!(f, ".{}", op)
+                }
+            }
+            Expr::Unary { op, expr } => {
+                if prec >= UNARY {
+                    write!(f, "({}", op)?;
+                    expr.fmt_with_precedence(f, UNARY)?;
+                    write!(f, ")")
+                } else {
+                    write!(f, "{}", op)?;
+                    expr.fmt_with_precedence(f, UNARY)
+                }
+            }
+            Expr::Binary { op, lhs, rhs } => {
+                if prec >= BINARY {
+                    write!(f, "(")?;
+                    lhs.fmt_with_precedence(f, BINARY)?;
+                    write!(f, " {} ", op)?;
+                    rhs.fmt_with_precedence(f, BINARY)?;
+                    write!(f, ")")
+                } else {
+                    lhs.fmt_with_precedence(f, BINARY)?;
+                    write!(f, " {} ", op)?;
+                    rhs.fmt_with_precedence(f, BINARY)
+                }
+            },
+            Expr::Call { func, args } => {
+                if prec >= FUNC {
+                    write!(f, "(")?;
+                    func.fmt_with_precedence(f, FUNC)?;
+                    write!(f, "({}))", args.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", "))
+                } else {
+                    func.fmt_with_precedence(f, FUNC)?;
+                    write!(f, "({})", args.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", "))
+                }
+            },
         }
+    }
+}
+
+impl std::fmt::Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_with_precedence(f, 0)
     }
 }
 
