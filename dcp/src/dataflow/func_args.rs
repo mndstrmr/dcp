@@ -126,7 +126,7 @@ fn insert_func_args_in_expr(sigs: &[GlobalSig], expr: &mut expr::Expr) {
         }
         expr::Expr::Call { func, args } => {
             if let expr::Expr::Func(funcid) = func.as_ref() {
-                args.extend(sigs[funcid.0].args.iter().cloned().map(expr::Expr::Name));
+                args.extend(sigs[funcid.0].args.iter().cloned().map(str::to_string).map(expr::Expr::Name));
             } else {
                 insert_func_args_in_expr(sigs, func);
                 for arg in args {
@@ -137,6 +137,9 @@ fn insert_func_args_in_expr(sigs: &[GlobalSig], expr: &mut expr::Expr) {
         expr::Expr::Bool(_) | expr::Expr::Name(_) | expr::Expr::Num(_) | expr::Expr::Func(_) => {},
         expr::Expr::Deref { ptr, .. } => {
             insert_func_args_in_expr(sigs, ptr);
+        }
+        expr::Expr::Ref(value) => {
+            insert_func_args_in_expr(sigs, value);
         }
     }
 }

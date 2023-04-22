@@ -1,5 +1,6 @@
 #![feature(let_chains)]
 
+const INDENT: &str = "    ";
 const NEWLINE_INDENT: &str = "\n    ";
 
 mod arch;
@@ -18,3 +19,5 @@ pub use local_cfg::*;
 mod dataflow;
 pub use dataflow::*;
 pub mod loop_detect;
+
+pub mod stack_frame;

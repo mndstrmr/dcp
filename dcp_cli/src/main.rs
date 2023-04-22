@@ -54,7 +54,8 @@ fn main() {
             regs
         },
         args: (0..=7).map(|x| dcp::armv8::X[x]).collect(),
-        eliminate: vec![dcp::armv8::X[29]]
+        eliminate: vec![dcp::armv8::X[29]],
+        base_reg: dcp::armv8::X[31]
     };
 
     let mut global_nodes: Vec<_> = functions.iter().map(|(_name, code, addr)| {
@@ -95,6 +96,9 @@ fn main() {
 
         dcp::mir::collapse_cmp(&mut mir.code);
         dcp::mir::reduce_binops(&mut mir.code);
+
+        dcp::stack_frame::name_locals(&mut mir, abi.base_reg);
+
         println!("{}", mir);
     }
 }

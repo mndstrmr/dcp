@@ -25,7 +25,7 @@ fn inline_single_use_names_in(graph: &cfg::ControlFlowGraph, node: usize, nodes:
                 let count = nodes[node].code[j].count_reads(name);
 
                 // Condition 2 must fail
-                if let lir::Lir::Assign { dst: expr::Expr::Name(nm), .. } = &nodes[node].code[j] && deps.contains(nm) && nm != name {
+                if let lir::Lir::Assign { dst: expr::Expr::Name(nm), .. } = &nodes[node].code[j] && deps.contains(nm.as_str()) && nm != name {
                     break;
                 }
 

@@ -22,12 +22,12 @@ fn name(reg: RegId) -> expr::Expr {
     expr::Expr::Name(match reg.0 as u32 {
         Arm64Reg::ARM64_REG_WZR | Arm64Reg::ARM64_REG_XZR => panic!("Zero reg"),
 
-        Arm64Reg::ARM64_REG_FP => X[29],
-        Arm64Reg::ARM64_REG_LR => X[30],
-        Arm64Reg::ARM64_REG_SP => X[31],
+        Arm64Reg::ARM64_REG_FP => X[29].to_string(),
+        Arm64Reg::ARM64_REG_LR => X[30].to_string(),
+        Arm64Reg::ARM64_REG_SP => X[31].to_string(),
 
-        x @ 216..=244 => X[x as usize - 216],
-        x @ 185..=213 => X[x as usize - 185],
+        x @ 216..=244 => X[x as usize - 216].to_string(),
+        x @ 185..=213 => X[x as usize - 185].to_string(),
         _ => panic!("bad reg {:?}", reg),
     })
 }
@@ -230,7 +230,7 @@ pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>)
                 let src2 = op_to_non_mem(&ops[1]);
 
                 block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Name(CMP),
+                    dst: expr::Expr::Name(CMP.to_string()),
                     src: expr::Expr::Binary {
                         op: expr::BinaryOp::Cmp,
                         lhs: Box::new(src1.clone()),
@@ -244,7 +244,7 @@ pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>)
                 let src2 = op_to_non_mem(&ops[2]);
 
                 block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Name(CMP),
+                    dst: expr::Expr::Name(CMP.to_string()),
                     src: expr::Expr::Binary {
                         op: expr::BinaryOp::Cmp,
                         lhs: Box::new(src1.clone()),
@@ -262,14 +262,14 @@ pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>)
                 });
             }
             Arm64Insn::ARM64_INS_RET => {
-                block.push(lir::Lir::Return(expr::Expr::Name(X[0])));
+                block.push(lir::Lir::Return(expr::Expr::Name(X[0].to_string())));
             }
             Arm64Insn::ARM64_INS_CSEL => {
                 let cond = match cc_to_lir(arch_detail.cc()) {
                     None => None,
                     Some(op) => Some(expr::Expr::Unary {
                         op,
-                        expr: Box::new(expr::Expr::Name(CMP)),
+                        expr: Box::new(expr::Expr::Name(CMP.to_string())),
                     }),
                 };
 
@@ -306,7 +306,7 @@ pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>)
                     None => expr::Expr::Num(1),
                     Some(op) => expr::Expr::Unary {
                         op,
-                        expr: Box::new(expr::Expr::Name(CMP)),
+                        expr: Box::new(expr::Expr::Name(CMP.to_string())),
                     },
                 };
 
@@ -331,7 +331,7 @@ pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>)
                 };
 
                 block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Name(X[0]),
+                    dst: expr::Expr::Name(X[0].to_string()),
                     src: expr::Expr::Call {
                         func: Box::new(addr),
                         args: vec![],
@@ -343,7 +343,7 @@ pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>)
                     None => None,
                     Some(op) => Some(expr::Expr::Unary {
                         op,
-                        expr: Box::new(expr::Expr::Name(CMP)),
+                        expr: Box::new(expr::Expr::Name(CMP.to_string())),
                     }),
                 };
 

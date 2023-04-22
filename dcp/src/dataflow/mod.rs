@@ -18,6 +18,7 @@ pub struct Abi {
     pub callee_saved: Vec<&'static str>,
     pub args: Vec<&'static str>,
     pub eliminate: Vec<&'static str>,
+    pub base_reg: &'static str,
 }
 
 enum ReadWrite {

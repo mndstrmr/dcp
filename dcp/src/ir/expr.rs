@@ -75,7 +75,7 @@ pub struct FuncId(pub usize);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
-    Name(&'static str),
+    Name(String), // FIXME: Intern this or something some day
     Num(i64),
     Func(FuncId),
     Bool(bool),
@@ -83,6 +83,7 @@ pub enum Expr {
         ptr: Box<Expr>,
         size: ty::Size
     },
+    Ref(Box<Expr>),
     Call {
         func: Box<Expr>,
         args: Vec<Expr>
@@ -107,6 +108,7 @@ impl std::fmt::Display for Expr {
             Expr::Func(idx) => write!(f, "fn{}", idx.0),
             Expr::Bool(b) => write!(f, "{}", b),
             Expr::Deref { ptr, size } => write!(f, "*{size} {}", ptr),
+            Expr::Ref(value) => write!(f, "&{value}"),
             Expr::Unary { op, expr } if op.is_cmp() => write!(f, "{}.{}", expr, op),
             Expr::Unary { op, expr } => write!(f, "{}{}", op, expr),
             Expr::Binary { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
@@ -154,6 +156,7 @@ impl Expr {
             Expr::Bool(_) => 0,
             Expr::Num(_) => 0,
             Expr::Deref { ptr, .. } => ptr.count_reads(name),
+            Expr::Ref(value) => value.count_reads(name),
             Expr::Call { func, args } => args.iter().fold(func.count_reads(name), |prev, x| prev + x.count_reads(name))
         }
     }
@@ -164,10 +167,11 @@ impl Expr {
         vec
     }
 
-    pub fn append_read_names_rhs(&self, names: &mut Vec<&str>) {
+    pub fn append_read_names_rhs<'a>(&'a self, names: &mut Vec<&'a str>) {
         match self {
-            Expr::Name(name) => names.push(name.clone()),
+            Expr::Name(name) => names.push(name.as_str()),
             Expr::Deref { ptr, .. } => ptr.append_read_names_rhs(names),
+            Expr::Ref(value) => value.append_read_names_rhs(names),
             Expr::Unary { expr, .. } => expr.append_read_names_rhs(names),
             Expr::Binary { lhs, rhs, .. } => {
                 lhs.append_read_names_rhs(names);
@@ -183,7 +187,7 @@ impl Expr {
         }
     }
 
-    pub fn append_read_names_lhs(&self, names: &mut Vec<&str>) {
+    pub fn append_read_names_lhs<'a>(&'a self, names: &mut Vec<&'a str>) {
         if let Expr::Name(_) = self {
             return;
         }
@@ -201,6 +205,7 @@ impl Expr {
             }
             Expr::Unary { expr: uexpr, .. } => uexpr.replace_name(name, expr),
             Expr::Deref { ptr, .. } => ptr.replace_name(name, expr),
+            Expr::Ref(value) => value.replace_name(name, expr),
             Expr::Call { func, args } => {
                 func.replace_name(name, expr);
                 for arg in args {
@@ -228,6 +233,7 @@ impl Expr {
                 rhs.collapse_cmp();
             }
             Expr::Deref { ptr, .. } => ptr.collapse_cmp(),
+            Expr::Ref(value) => value.collapse_cmp(),
             Expr::Call { func, args } => {
                 func.collapse_cmp();
                 for arg in args {
@@ -260,6 +266,7 @@ impl Expr {
                 }
             }
             Expr::Deref { ptr, .. } => ptr.reduce_binops(),
+            Expr::Ref(value) => value.reduce_binops(),
             Expr::Call { func, args } => {
                 func.reduce_binops();
                 for arg in args {

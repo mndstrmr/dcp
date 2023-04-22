@@ -44,24 +44,76 @@ impl Mir {
     }
 }
 
+pub struct MirLocal {
+    pub offset: u64,
+    pub size: u64,
+    pub name: String
+}
+
+pub struct MirStackFrame {
+    size: u64,
+    locals: Vec<MirLocal>
+}
+
+impl MirStackFrame {
+    pub fn new() -> MirStackFrame {
+        MirStackFrame {
+            size: 0,
+            locals: vec![]
+        }
+    }
+
+    pub fn get_at(&self, offset: u64) -> Option<&MirLocal> {
+        match self.locals.binary_search_by(|x| x.offset.cmp(&offset)) {
+            Ok(idx) => self.locals.get(idx),
+            Err(_) => None
+        }
+    }
+
+    pub fn get_by_name(&self, name: &str) -> Option<&MirLocal> {
+        self.locals.iter().find(|x| x.name == name)
+    }
+
+    pub fn get_mut_by_name(&mut self, name: &str) -> Option<&mut MirLocal> {
+        self.locals.iter_mut().find(|x| x.name == name)
+    }
+
+    pub fn insert(&mut self, local: MirLocal) {
+        match self.locals.binary_search_by(|x| x.offset.cmp(&local.offset)) {
+            Ok(_) => panic!("Already exists"),
+            Err(idx) => {
+                self.locals.insert(idx, local);
+            }
+        }
+    }
+}
+
 pub struct MirFunc {
     pub args: Vec<&'static str>,
     pub results: Vec<&'static str>,
-    pub code: Vec<Mir>
+    pub code: Vec<Mir>,
+    pub stack_frame: MirStackFrame
 }
 
 impl MirFunc {
     pub fn new(args: Vec<&'static str>, results: Vec<&'static str>, code: Vec<Mir>) -> MirFunc {
         MirFunc {
             args, results,
-            code
+            code,
+            stack_frame: MirStackFrame::new()
         }
     }
 }
 
 impl std::fmt::Display for MirFunc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "block {{")?;
+        write!(f, "func {{")?;
+        write!(f, "{}frame {} {{", crate::NEWLINE_INDENT, self.stack_frame.size)?;
+        for local in &self.stack_frame.locals {
+            write!(f, "\n{}{}var {}: {} bytes @ base + {}", crate::INDENT, crate::INDENT, local.name, local.size, local.offset)?;
+        }
+        write!(f, "{}}}", crate::NEWLINE_INDENT)?;
+
         for stmt in &self.code {
             f.write_str(&format!("\n{}", stmt).replace('\n', crate::NEWLINE_INDENT))?;
         }
@@ -162,14 +214,26 @@ pub trait MirVisitor {
         }
     }
 
+    fn visit_expr(&mut self, _expr: &expr::Expr) {}
+
     fn visit_break(&mut self) {}
     fn visit_continue(&mut self) {}
-    fn visit_return(&mut self, _expr: &expr::Expr) {}
-    fn visit_assign(&mut self, _dst: &expr::Expr, _src: &expr::Expr) {}
+    fn visit_return(&mut self, expr: &expr::Expr) {
+        self.visit_expr(expr);
+    }
+    fn visit_assign(&mut self, dst: &expr::Expr, src: &expr::Expr) {
+        self.visit_expr(dst);
+        self.visit_expr(src);
+    }
     fn visit_label(&mut self, _label: lir::Label) {}
-    fn visit_branch(&mut self, _cond: Option<&expr::Expr>, _target: lir::Label) {}
+    fn visit_branch(&mut self, cond: Option<&expr::Expr>, _target: lir::Label) {
+        if let Some(cond) = cond {
+            self.visit_expr(cond);
+        }
+    }
     
-    fn visit_if(&mut self, _cond: &expr::Expr, true_then: &[Mir], false_then: &[Mir]) {
+    fn visit_if(&mut self, cond: &expr::Expr, true_then: &[Mir], false_then: &[Mir]) {
+        self.visit_expr(cond);
         self.visit_block(true_then);
         self.visit_block(false_then);
     }
@@ -178,11 +242,13 @@ pub trait MirVisitor {
         self.visit_block(code);
     }
 
-    fn visit_while(&mut self, _guard: &expr::Expr, code: &[Mir]) {
+    fn visit_while(&mut self, guard: &expr::Expr, code: &[Mir]) {
+        self.visit_expr(guard);
         self.visit_block(code);
     }
 
-    fn visit_for(&mut self, _guard: &expr::Expr, inc: &[Mir], code: &[Mir]) {
+    fn visit_for(&mut self, guard: &expr::Expr, inc: &[Mir], code: &[Mir]) {
+        self.visit_expr(guard);
         self.visit_block(inc);
         self.visit_block(code);
     }

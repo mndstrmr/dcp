@@ -6,6 +6,17 @@ pub enum Size {
     Size8,
 }
 
+impl Size {
+    pub fn byte_count(&mut self) -> usize {
+        match self {
+            Size::Size64 => 8,
+            Size::Size32 => 4,
+            Size::Size16 => 2,
+            Size::Size8 => 1,
+        }
+    }
+}
+
 impl std::fmt::Display for Size {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
