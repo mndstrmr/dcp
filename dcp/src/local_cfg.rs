@@ -202,8 +202,8 @@ fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, entry: cfg::NodeId, 
     }
 }
 
-pub fn reorder_code(graph: &cfg::ControlFlowGraph, dominators: &cfg::Dominators, mut nodes: Vec<lir::LirNode>) -> mir::MirFunc {
+pub fn reorder_code(graph: &cfg::ControlFlowGraph, dominators: &cfg::Dominators, mut nodes: Vec<lir::LirNode>) -> Vec<mir::Mir> {
     let mut code = Vec::new();
     append_subgraph_to_block(graph.nodes(), graph.get_entry().expect("No entry"), &graph, &dominators, &mut nodes, &mut code);
-    mir::MirFunc::new(vec![], vec![], code)
+    code
 }

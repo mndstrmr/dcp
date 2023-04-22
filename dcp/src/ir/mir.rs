@@ -96,11 +96,11 @@ pub struct MirFunc {
 }
 
 impl MirFunc {
-    pub fn new(args: Vec<&'static str>, results: Vec<&'static str>, code: Vec<Mir>) -> MirFunc {
+    pub fn new(args: Vec<&'static str>, results: Vec<&'static str>, code: Vec<Mir>, stack_frame: MirStackFrame) -> MirFunc {
         MirFunc {
             args, results,
             code,
-            stack_frame: MirStackFrame::new()
+            stack_frame
         }
     }
 }

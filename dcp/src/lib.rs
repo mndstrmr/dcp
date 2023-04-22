@@ -19,5 +19,3 @@ pub use local_cfg::*;
 mod dataflow;
 pub use dataflow::*;
 pub mod loop_detect;
-
-pub mod stack_frame;

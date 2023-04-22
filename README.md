@@ -7,11 +7,9 @@ This is a standard rust/cargo project, hence with rust installed simply run `car
 
 ## TODO
 - Function detection without symbols
-- Function calls
+- Function calls when we don't have the implementation on hand
 - ELF Files
 - x86
-- Improve operand size accuracy
-- Named memory locations
 
 ## Example
 ```c
@@ -45,39 +43,49 @@ int main() {
 Compiled with `gcc example.c -o example`, then decompiled with `cargo run -- example`:
 
 ```
-block {
-    sp = (sp - 16)
-    *d (sp + 12) = x0
-    x0 = (*d (sp + 12) + 3)
-    sp = (sp + 16)
-    return x0
+func {
+    frame 0 {
+        var a: 4 bytes @ base + 12
+        var b: 0 bytes @ base + 16
+    }
+    sp = sp - 16
+    sp = &b
+    return x0 + 3
 }
 
-block {
-    sp = (sp - 48)
-    *q (sp + 32) = fp
-    *q (sp + 40) = lr
-    *d (sp + 28) = 0
-    *d (sp + 24) = 5
-    *d (sp + 20) = (*d (sp + 24) + 3)
-    *d (sp + 16) = 0
-    for (*d (sp + 16) < 5); *d (sp + 16) = (*d (sp + 16) + 1) {
-        if (*d (sp + 16) > 1) {
-            if (*d (sp + 24) > *d (sp + 20)) {
-                *d (sp + 24) = (*d (sp + 24) + 3)
+func {
+    frame 0 {
+        var g: 4 bytes @ base + 12
+        var f: 4 bytes @ base + 16
+        var e: 4 bytes @ base + 20
+        var d: 4 bytes @ base + 24
+        var c: 4 bytes @ base + 28
+        var a: 8 bytes @ base + 32
+        var b: 8 bytes @ base + 40
+        var h: 0 bytes @ base + 48
+    }
+    sp = sp - 48
+    a = fp
+    b = lr
+    c = 0
+    d = 5
+    e = d + 3
+    f = 0
+    for f < 5; f = f + 1 {
+        if f > 1 {
+            if d > e {
+                d = d + 3
             }
-            if (*d (sp + 16) != 2) {
-                *d (sp + 12) = *d (sp + 20)
-                *d (sp + 20) = (*d (sp + 12) - fn0(3))
+            if f != 2 {
+                e = e - fn0(3)
                 break
             }
-            *d (sp + 24) = (*d (sp + 24) - *d (sp + 20))
+            d = d - e
         }
     }
-    x0 = *d (sp + 24)
-    fp = *q (sp + 32)
-    lr = *q (sp + 40)
-    sp = (sp + 48)
-    return x0
+    fp = a
+    lr = b
+    sp = &h
+    return d
 }
 ```

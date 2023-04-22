@@ -10,6 +10,9 @@ pub use every_use::*;
 mod func_args;
 pub use func_args::*;
 
+mod stack_frame;
+pub use stack_frame::*;
+
 use std::collections::HashSet;
 
 use crate::{cfg, lir, expr};

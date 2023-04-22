@@ -17,26 +17,25 @@ fn inline_single_use_names_in(graph: &cfg::ControlFlowGraph, node: usize, nodes:
     while i < nodes[node].code.len() {
         if let lir::Lir::Assign { dst: expr::Expr::Name(name), src } = &nodes[node].code[i] {
             let deps = HashSet::<_, RandomState>::from_iter(src.read_names_rhs());
-
+            
             i += 1;
-
             let mut j = i;
             'outer: while j < nodes[node].code.len() {
                 let count = nodes[node].code[j].count_reads(name);
-
-                // Condition 2 must fail
-                if let lir::Lir::Assign { dst: expr::Expr::Name(nm), .. } = &nodes[node].code[j] && deps.contains(nm.as_str()) && nm != name {
-                    break;
-                }
 
                 // Condition 5 must fail
                 if count > 1 {
                     break;
                 }
-
+                
                 if count < 1 {
                     // Condition 1 must fail
                     if let lir::Lir::Assign { dst: expr::Expr::Name(nm), .. } = &nodes[node].code[j] && nm == name {
+                        break;
+                    }
+
+                    // Condition 2 must fail
+                    if let lir::Lir::Assign { dst: expr::Expr::Name(nm), .. } = &nodes[node].code[j] && deps.contains(nm.as_str()) && nm != name {
                         break;
                     }
 
@@ -52,11 +51,13 @@ fn inline_single_use_names_in(graph: &cfg::ControlFlowGraph, node: usize, nodes:
                     let mut allow = false;
                     for k in j + 1..nodes[node].code.len() {
                         match stmt_reads_or_writes(&nodes[node].code[k], name, abi) {
-                            ReadWrite::Reads => break 'outer,
+                            ReadWrite::Reads => {
+                                break 'outer
+                            }
                             ReadWrite::Writes => {
                                 allow = true;
                                 break
-                            },
+                            }
                             ReadWrite::Neither => {}
                         }
                     }

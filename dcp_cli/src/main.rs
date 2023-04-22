@@ -75,10 +75,20 @@ fn main() {
         for elim in &abi.eliminate {
             dcp::elim_name(&cfg, &mut blir, &abi, elim);
         }
+        
         dcp::elim_dead_writes(&cfg, &mut blir, &abi);
         dcp::inline_single_use_names(&cfg, &mut blir, &abi);
 
-        let mut mir = dcp::reorder_code(&cfg, &cfg.dominators(), blir);
+        for block in &mut blir {
+            dcp::lir::reduce_binops(&mut block.code);
+        }
+
+        let stack_frame = dcp::mem_to_name(&mut blir, &abi);
+
+        dcp::inline_single_use_names(&cfg, &mut blir, &abi);
+        
+        let code = dcp::reorder_code(&cfg, &cfg.dominators(), blir);
+        let mut mir = dcp::mir::MirFunc::new(vec![], vec![], code, stack_frame);
         
         dcp::mir::compress_control_flow(&mut mir.code);
         dcp::mir::cull_fallthrough_jumps(&mut mir.code);
@@ -97,7 +107,7 @@ fn main() {
         dcp::mir::collapse_cmp(&mut mir.code);
         dcp::mir::reduce_binops(&mut mir.code);
 
-        dcp::stack_frame::name_locals(&mut mir, abi.base_reg);
+        // dcp::stack_frame::name_locals(&mut mir, abi.base_reg);
 
         println!("{}", mir);
     }
