@@ -50,6 +50,16 @@ pub enum BinaryOp {
     Cmp
 }
 
+impl BinaryOp {
+    pub fn is_logical(&self) -> bool {
+        match self {
+            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge |
+            BinaryOp::And | BinaryOp::Or => true,
+            _ => false
+        }
+    }
+}
+
 impl std::fmt::Display for BinaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -329,8 +339,32 @@ impl Expr {
                                 lhs: Box::new(lhs2.take()),
                                 rhs: Box::new(Expr::Num(n + n2))
                             },
+                        (BinaryOp::Add, BinaryOp::Sub) =>
+                            *self = Expr::Binary {
+                                op: BinaryOp::Sub,
+                                lhs: Box::new(lhs2.take()),
+                                rhs: Box::new(Expr::Num(n2 - n))
+                            },
+                        (BinaryOp::And, op2) if op2.is_logical() && *n != 0 =>
+                            *self = lhs.take(),
                         _ => {}
                     }
+                } else if let Expr::Num(n) = rhs.as_ref() &&
+                    *n < 0 && *op == BinaryOp::Sub {
+                    *rhs = Box::new(Expr::Num(-n));
+                    *op = BinaryOp::Add;
+                } else if let Expr::Num(n) = rhs.as_ref() && *n == 0 {
+                    match op {
+                        BinaryOp::Add => *self = lhs.take(),
+                        BinaryOp::Sub => *self = lhs.take(),
+                        BinaryOp::Mul => *self = Expr::Num(0),
+                        _ => {}
+                    };
+                } else if let Expr::Num(1) = rhs.as_ref() &&
+                     let BinaryOp::And = op &&
+                     let Expr::Binary { op: op2, .. } = lhs.as_ref() &&
+                     op2.is_logical() {
+                    *self = lhs.take();
                 }
             }
             Expr::Deref { ptr, .. } => ptr.reduce_binops(),

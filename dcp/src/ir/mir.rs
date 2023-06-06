@@ -110,7 +110,7 @@ impl std::fmt::Display for MirFunc {
         write!(f, "func {{")?;
         write!(f, "{}frame {} {{", crate::NEWLINE_INDENT, self.stack_frame.size)?;
         for local in &self.stack_frame.locals {
-            write!(f, "\n{}{}var {}: {} bytes @ base + {}", crate::INDENT, crate::INDENT, local.name, local.size, local.offset)?;
+            write!(f, "\n{}{}var {}: {} bytes @ base - {}", crate::INDENT, crate::INDENT, local.name, local.size, local.offset)?;
         }
         write!(f, "{}}}", crate::NEWLINE_INDENT)?;
 
@@ -566,6 +566,28 @@ pub fn inline_terminating_if(code: &mut Vec<Mir>) {
     }
 
     TerminatingIfVisitor.visit_block(code)
+}
+
+pub fn flip_negated_ifs(code: &mut Vec<Mir>) {
+    struct FlipIfVisitor;
+
+    impl MirVisitorMut for FlipIfVisitor {
+        fn visit_if(&mut self, cond: &mut expr::Expr, true_then: &mut Vec<Mir>, false_then: &mut Vec<Mir>) -> MVMAction {
+            let mut is_inverse = false;
+            while let expr::Expr::Unary { op: expr::UnaryOp::Not, expr } = cond {
+                *cond = expr.take();
+                is_inverse = !is_inverse;
+            }
+
+            if is_inverse {
+                std::mem::swap(true_then, false_then);
+            }
+
+            MVMAction::Keep
+        }
+    }
+
+    FlipIfVisitor.visit_block(code)
 }
 
 pub fn contains_continue(code: &[Mir]) -> bool {

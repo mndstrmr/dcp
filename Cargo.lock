@@ -108,6 +108,7 @@ version = "0.1.0"
 dependencies = [
  "capstone",
  "mach_object",
+ "wasmparser",
 ]
 
 [[package]]
@@ -247,6 +248,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "semver"
+version = "1.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bebd363326d05ec3e2f532ab7660680f3b02130d780c299bca73469d521bc0ed"
+
+[[package]]
 name = "serde"
 version = "1.0.159"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -359,6 +366,16 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+
+[[package]]
+name = "wasmparser"
+version = "0.107.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29e3ac9b780c7dda0cac7a52a5d6d2d6707cc6e3451c9db209b6c758f40d7acb"
+dependencies = [
+ "indexmap",
+ "semver",
+]
 
 [[package]]
 name = "winapi"

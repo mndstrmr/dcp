@@ -2,18 +2,5 @@
 members = [
     "dcp_cli",
     "dcp",
-    
-    # "dcp_lir_gen",
-    # "dcp_lir",
-    # "dcp_cfg_gen",
-    # "dcp_cfg",
-    # "dcp_order",
-    # "dcp_dataflow",
-    
-    # "dcp_ir_to_cfg",
-    # "dcp_cf_pat",
-    # "dcp_tidy",
-    # "dcp_abi",
-    # "dcp_bin",
-    # "dcp_ssa",
 ]
+resolver = "2"

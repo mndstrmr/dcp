@@ -31,16 +31,17 @@ impl NameGen {
     }
 }
 
-fn append_expr_to_frame(expr: &mut expr::Expr, abi: &Abi, stack_frame: &mut mir::MirStackFrame, name_gen: &mut NameGen) {
+// FIXME: I have not proved that sp (or whatever) doesn't change (which it does)...
+fn append_expr_to_frame(expr: &mut expr::Expr, base_reg: &str, stack_frame: &mut mir::MirStackFrame, name_gen: &mut NameGen) {
     match expr {
         expr::Expr::Binary { op, lhs, rhs } => {
-            append_expr_to_frame(lhs, abi, stack_frame, name_gen);
-            append_expr_to_frame(rhs, abi, stack_frame, name_gen);
+            append_expr_to_frame(lhs, base_reg, stack_frame, name_gen);
+            append_expr_to_frame(rhs, base_reg, stack_frame, name_gen);
 
             if
-                *op == expr::BinaryOp::Add &&
+                *op == expr::BinaryOp::Sub &&
                 let expr::Expr::Name(name) = lhs.as_ref() &&
-                *name == abi.base_reg && 
+                *name == base_reg && 
                 let expr::Expr::Num(offset) = rhs.as_ref() &&
                 *offset >= 0 {
                 
@@ -54,13 +55,13 @@ fn append_expr_to_frame(expr: &mut expr::Expr, abi: &Abi, stack_frame: &mut mir:
             }
         }
         expr::Expr::Call { func, args } => {
-            append_expr_to_frame(func, abi, stack_frame, name_gen);
+            append_expr_to_frame(func, base_reg, stack_frame, name_gen);
             for arg in args {
-                append_expr_to_frame(arg, abi, stack_frame, name_gen);
+                append_expr_to_frame(arg, base_reg, stack_frame, name_gen);
             }
         }
         expr::Expr::Deref { ptr, size } => {
-            append_expr_to_frame(ptr, abi, stack_frame, name_gen);
+            append_expr_to_frame(ptr, base_reg, stack_frame, name_gen);
 
             if
                 let expr::Expr::Ref(inner) = ptr.as_ref() &&
@@ -75,25 +76,30 @@ fn append_expr_to_frame(expr: &mut expr::Expr, abi: &Abi, stack_frame: &mut mir:
                 }
             }
         }
-        expr::Expr::Ref(value) => append_expr_to_frame(value, abi, stack_frame, name_gen),
-        expr::Expr::Unary { expr, .. } => append_expr_to_frame(expr, abi, stack_frame, name_gen),
+        expr::Expr::Ref(value) => append_expr_to_frame(value, base_reg, stack_frame, name_gen),
+        expr::Expr::Unary { expr, .. } => append_expr_to_frame(expr, base_reg, stack_frame, name_gen),
         expr::Expr::Name(_) | expr::Expr::Bool(_) |  expr::Expr::Num(_) | expr::Expr::Func(_) => {}
     }
 }
 
 pub fn mem_to_name(nodes: &mut Vec<lir::LirNode>, abi: &Abi) -> mir::MirStackFrame {
     let mut stack_frame = mir::MirStackFrame::new();
+
+    let Some(base_reg) = abi.base_reg else {
+        return stack_frame;
+    };
+
     let mut name_gen = NameGen::new();
 
     for node in nodes {
         for stmt in &mut node.code {
             match stmt {
-                lir::Lir::Return(expr) => append_expr_to_frame(expr, abi, &mut stack_frame, &mut name_gen),
+                lir::Lir::Return(expr) => append_expr_to_frame(expr, base_reg, &mut stack_frame, &mut name_gen),
                 lir::Lir::Assign { src, dst } => {
-                    append_expr_to_frame(src, abi, &mut stack_frame, &mut name_gen);
-                    append_expr_to_frame(dst, abi, &mut stack_frame, &mut name_gen);
+                    append_expr_to_frame(src, base_reg, &mut stack_frame, &mut name_gen);
+                    append_expr_to_frame(dst, base_reg, &mut stack_frame, &mut name_gen);
                 }
-                lir::Lir::Branch { cond: Some(cond), .. } => append_expr_to_frame(cond, abi, &mut stack_frame, &mut name_gen),
+                lir::Lir::Branch { cond: Some(cond), .. } => append_expr_to_frame(cond, base_reg, &mut stack_frame, &mut name_gen),
                 lir::Lir::Branch { .. } | lir::Lir::Label(_) => {}
             }
         }

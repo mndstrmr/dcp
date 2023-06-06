@@ -13,6 +13,8 @@ pub use func_args::*;
 mod stack_frame;
 pub use stack_frame::*;
 
+pub mod ssaify;
+
 use std::collections::HashSet;
 
 use crate::{cfg, lir, expr};
@@ -21,7 +23,7 @@ pub struct Abi {
     pub callee_saved: Vec<&'static str>,
     pub args: Vec<&'static str>,
     pub eliminate: Vec<&'static str>,
-    pub base_reg: &'static str,
+    pub base_reg: Option<&'static str>,
 }
 
 enum ReadWrite {

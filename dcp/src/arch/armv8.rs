@@ -8,7 +8,7 @@ use capstone::{
     prelude::*,
 };
 
-use crate::{expr, lir, ty};
+use crate::{expr, lir, ty, Abi};
 
 const CMP: &'static str = "cmp";
 
@@ -17,6 +17,21 @@ pub const X: &[&'static str] = &[
     "x15", "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27",
     "x28", "fp", "lr", "sp",
 ];
+
+pub fn abi() -> Abi {
+    Abi {
+        callee_saved: {
+            let mut regs: Vec<_> = (19..=29).map(|x| X[x]).collect();
+            regs.push(X[29]);
+            regs.push(X[30]);
+            regs.push(X[31]);
+            regs
+        },
+        args: (0..=7).map(|x| X[x]).collect(),
+        eliminate: vec![X[29], X[31]],
+        base_reg: Some(X[31])
+    }
+}
 
 fn name(reg: RegId) -> expr::Expr {
     expr::Expr::Name(match reg.0 as u32 {

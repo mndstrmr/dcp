@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 capstone = "0.11.0"
 mach_object = "0.1.17"
+wasmparser = "0.107.0"

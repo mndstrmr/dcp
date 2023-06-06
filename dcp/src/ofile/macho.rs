@@ -4,15 +4,9 @@ use mach_object::{OFile, MachCommand, LoadCommand, SymbolIter, Symbol};
 
 #[derive(Debug)]
 pub enum OfileErr {
-    Macho(String),
     UnknownFormat,
-    NoCode
-}
-
-impl From<mach_object::MachError> for OfileErr {
-    fn from(value: mach_object::MachError) -> Self {
-        OfileErr::Macho(format!("{}", value))
-    }
+    NoCode,
+    Invalid
 }
 
 #[derive(Debug)]
@@ -21,59 +15,77 @@ pub enum CodeResult<'a> {
     Functions(Vec<(Option<String>, &'a [u8], u64)>)
 }
 
-pub fn code_from(buf: &[u8]) -> Result<CodeResult, OfileErr> {
+pub enum MachoArch {
+    X8664,
+    Arm64
+}
+
+pub fn code_from(buf: &[u8]) -> Result<(CodeResult, Option<MachoArch>), OfileErr> {
     let mut cursor = Cursor::new(buf);
 
     let mut code = None;
     let mut symbols = None;
 
-    if let OFile::MachFile { header, commands } = OFile::parse(&mut cursor)? {
-        assert_eq!(header.cputype, mach_object::CPU_TYPE_ARM64);
-        for MachCommand(cmd, ..) in &commands {
-            if let &LoadCommand::Segment64 { segname, sections, .. } = &cmd {
-                if segname != "__TEXT" {
+    let (header, commands) = match OFile::parse(&mut cursor) {
+        Ok(OFile::MachFile { header, commands }) => (header, commands),
+        Ok(_) => todo!(),
+        Err(mach_object::MachError::UnknownMagic(_)) => return Err(OfileErr::UnknownFormat),
+        Err(err) => {
+            eprintln!("mach_object err: {err}");
+            return Err(OfileErr::Invalid)
+        }
+    };
+
+    let arch = match header.cputype {
+        mach_object::CPU_TYPE_ARM64 => Some(MachoArch::Arm64),
+        mach_object::CPU_TYPE_X86_64 => Some(MachoArch::Arm64),
+        _ => None
+    };
+
+    for MachCommand(cmd, ..) in &commands {
+        if let &LoadCommand::Segment64 { segname, sections, .. } = &cmd {
+            if segname != "__TEXT" {
+                continue
+            }
+
+            for section in sections {
+                if section.sectname != "__text" {
                     continue
                 }
 
-                for section in sections {
-                    if section.sectname != "__text" {
-                        continue
-                    }
-
-                    code = Some((
-                        section.addr,
-                        section.offset as usize..section.offset as usize + section.size
-                    ));
-                }
+                code = Some((
+                    section.addr,
+                    section.offset as usize..section.offset as usize + section.size
+                ));
             }
+        }
 
-            if let &LoadCommand::SymTab { symoff, nsyms, stroff, strsize } = &cmd {
-                let sections = commands.iter().filter_map(|cmd| match cmd {
-                    MachCommand(LoadCommand::Segment { sections, .. }, ..)
-                    | MachCommand(LoadCommand::Segment64 { sections, .. }, ..) => Some(sections),
-                    _ => None,
-                })
-                .flat_map(|sections| sections.clone())
-                .collect::<Vec<_>>();
+        if let &LoadCommand::SymTab { symoff, nsyms, stroff, strsize } = &cmd {
+            let sections = commands.iter().filter_map(|cmd| match cmd {
+                MachCommand(LoadCommand::Segment { sections, .. }, ..)
+                | MachCommand(LoadCommand::Segment64 { sections, .. }, ..) => Some(sections),
+                _ => None,
+            })
+            .flat_map(|sections| sections.clone())
+            .collect::<Vec<_>>();
 
-                if cursor.seek(SeekFrom::Start(u64::from(*symoff))).is_ok() {
-                    let mut cur = cursor.clone();
-                    let iter = SymbolIter::new(
-                        &mut cur,
-                        sections,
-                        *nsyms,
-                        *stroff,
-                        *strsize,
-                        header.is_bigend(),
-                        header.is_64bit(),
-                    );
-                    symbols = Some(iter.filter_map(|x| match x {
-                        Symbol::Defined { name, section: Some(section), entry, .. } if section.sectname == "__text" => Some({
-                            (name.map(str::to_string), entry)
-                        }),
-                        _ => None
-                    }).collect::<Vec<_>>());
-                }
+            if cursor.seek(SeekFrom::Start(u64::from(*symoff))).is_ok() {
+                let mut cur = cursor.clone();
+                let iter = SymbolIter::new(
+                    &mut cur,
+                    sections,
+                    *nsyms,
+                    *stroff,
+                    *strsize,
+                    header.is_bigend(),
+                    header.is_64bit(),
+                );
+                symbols = Some(iter.filter_map(|x| match x {
+                    Symbol::Defined { name, section: Some(section), entry, .. } if section.sectname == "__text" => Some({
+                        (name.map(str::to_string), entry)
+                    }),
+                    _ => None
+                }).collect::<Vec<_>>());
             }
         }
     }
@@ -85,7 +97,7 @@ pub fn code_from(buf: &[u8]) -> Result<CodeResult, OfileErr> {
     let code = &buf[code];
 
     let Some(mut syms) = symbols else {
-        return Ok(CodeResult::UnknownBlock(code, code_vaddr as u64))
+        return Ok((CodeResult::UnknownBlock(code, code_vaddr as u64), arch))
     };
 
     syms.sort_by_key(|(_, x)| *x);
@@ -98,5 +110,5 @@ pub fn code_from(buf: &[u8]) -> Result<CodeResult, OfileErr> {
         }
     }
 
-    Ok(CodeResult::Functions(functions))
+    Ok((CodeResult::Functions(functions), arch))
 }
