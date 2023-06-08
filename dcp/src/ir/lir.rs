@@ -24,6 +24,24 @@ pub enum Lir {
 }
 
 impl Lir {
+    pub fn has_side_effects(&self) -> bool {
+        match self {
+            Lir::Assign { src: expr::Expr::Deref { .. }, .. } => true,
+            Lir::Assign { src, dst } => src.has_side_effects() || dst.has_side_effects(),
+            Lir::Label(_) => false,
+            Lir::Return(ret) => ret.has_side_effects(),
+            Lir::Branch { cond: Some(cond), .. } => cond.has_side_effects(),
+            Lir::Branch { .. } => false,
+        }
+    }
+
+    pub fn writes_to(&self, name: &str) -> bool {
+        match self {
+            Lir::Assign { dst: expr::Expr::Name(nm), .. } => name == nm,
+            _ => false
+        }
+    }
+
     pub fn count_reads(&self, name: &str) -> usize {
         match self {
             Lir::Return(expr) => expr.count_reads(name),

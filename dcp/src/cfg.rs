@@ -2,11 +2,13 @@ use std::collections::{HashMap, HashSet};
 
 pub type NodeId = usize;
 
+#[derive(Debug)]
 struct Node {
     pub incoming: HashSet<NodeId>,
     pub outgoing: HashSet<NodeId>,
 }
 
+#[derive(Debug)]
 pub struct Dominators {
     dominators: HashMap<NodeId, HashSet<NodeId>>
 }
@@ -21,6 +23,7 @@ impl Dominators {
     }
 }
 
+#[derive(Debug)]
 pub struct ControlFlowGraph {
     entry: Option<NodeId>,
     nodes: HashMap<NodeId, Node>,

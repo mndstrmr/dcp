@@ -27,6 +27,7 @@ pub fn abi() -> Abi {
             regs.push(X[31]);
             regs
         },
+        global: vec![],
         args: (0..=7).map(|x| X[x]).collect(),
         eliminate: vec![X[29], X[31]],
         base_reg: Some(X[31])

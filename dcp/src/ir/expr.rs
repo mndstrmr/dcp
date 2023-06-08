@@ -225,6 +225,20 @@ impl Expr {
         }
     }
 
+    pub fn has_side_effects(&self) -> bool {
+        match self {
+            Expr::Name(_) => false,
+            Expr::Func(_) => false,
+            Expr::Binary { lhs, rhs, .. } => lhs.has_side_effects() || rhs.has_side_effects(),
+            Expr::Unary { expr, .. } => expr.has_side_effects(),
+            Expr::Bool(_) => false,
+            Expr::Num(_) => false,
+            Expr::Deref { ptr, .. } => ptr.has_side_effects(),
+            Expr::Ref(value) => value.has_side_effects(),
+            Expr::Call { .. } => true
+        }
+    }
+
     pub fn count_reads(&self, name: &str) -> usize {
         match self {
             Expr::Name(nm) => (*nm == name) as usize,

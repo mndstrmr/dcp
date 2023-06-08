@@ -5,6 +5,7 @@ use crate::{Abi, lir, expr, ty};
 pub fn abi() -> Abi {
     Abi {
         args: vec![],
+        global: vec!["sp"],
         base_reg: None,
         callee_saved: vec![],
         eliminate: vec![]

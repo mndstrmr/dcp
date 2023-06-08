@@ -2,44 +2,62 @@ use std::collections::HashSet;
 
 use crate::{cfg, lir, Abi, expr};
 
-use super::{stmt_reads_or_writes, ReadWrite, reads_before_writes};
+fn has_reader(cfg: &cfg::ControlFlowGraph, nodes: &[lir::LirNode], node: usize, stmt: usize, name: &str, abi: &Abi, visited: &mut HashSet<usize>) -> bool {
+    if !visited.insert(node) {
+        return false;
+    }
 
-// If x = a can be removed if x is not read before it is next written
-fn elim_dead_write_in(graph: &cfg::ControlFlowGraph, node: usize, nodes: &mut Vec<lir::LirNode>, abi: &Abi) -> bool {
+    for assignment in nodes[node].code.iter().skip(stmt) {
+        if assignment.count_reads(name) > 0 {
+            return true;
+        }
+
+        if let lir::Lir::Return(_) = assignment && abi.callee_saved.contains(&name) {
+            return true;
+        }
+
+        if assignment.writes_to(name) {
+            return false;
+        }
+    }
+
+    for outgoing in cfg.outgoing_for(node) {
+        if has_reader(cfg, nodes, *outgoing, 0, name, abi, visited) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// If x = a can be removed if x is not read before it is next written
+fn elim_dead_write_in(cfg: &cfg::ControlFlowGraph, node: usize, nodes: &mut Vec<lir::LirNode>, abi: &Abi) -> bool {
     let mut changed = false;
 
     let mut i = 0;
-    'outer: while i < nodes[node].code.len() {
-        if let lir::Lir::Assign { dst: expr::Expr::Name(name), .. } = &nodes[node].code[i] {
+    while i < nodes[node].code.len() {
+        let lir::Lir::Assign { dst: expr::Expr::Name(name), src } = &nodes[node].code[i] else {
             i += 1;
-            for j in i..nodes[node].code.len() {
-                match stmt_reads_or_writes(&nodes[node].code[j], name, abi) {
-                    ReadWrite::Reads => {
-                        continue 'outer
-                    }
-                    ReadWrite::Writes => {
-                        i -= 1;
-                        nodes[node].code.remove(i);
-                        changed = true;
-                        continue 'outer;
-                    }
-                    ReadWrite::Neither => {}
-                }
-            }
+            continue;
+        };
 
-            let mut visited = HashSet::new();
-            for outgoing in graph.outgoing_for(node) {
-                if reads_before_writes(graph, *outgoing, name, nodes, &mut visited, abi) {
-                    continue 'outer;
-                }
-            }
-
-            i -= 1;
-            nodes[node].code.remove(i);
-            changed = true;
-        } else {
+        if abi.global.contains(&name.as_str()) {
             i += 1;
+            continue;
         }
+
+        if src.has_side_effects() {
+            i += 1;
+            continue;
+        }
+
+        if has_reader(cfg, nodes, node, i + 1, name, abi, &mut HashSet::new()) {
+            i += 1;
+            continue;
+        }
+
+        nodes[node].code.remove(i);
+        changed = true;
     }
 
     changed
