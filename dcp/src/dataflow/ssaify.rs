@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{cfg, lir, expr, Abi};
+use crate::{cfg, lir, expr, dataflow::Abi};
 
 #[derive(PartialEq, Hash, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 pub struct Loc {

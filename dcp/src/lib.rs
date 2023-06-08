@@ -16,6 +16,5 @@ pub use ir::*;
 mod local_cfg;
 pub use local_cfg::*;
 
-mod dataflow;
-pub use dataflow::*;
-pub mod loop_detect;
+pub mod dataflow;
+pub mod opt;

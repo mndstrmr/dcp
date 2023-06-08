@@ -259,7 +259,13 @@ impl Expr {
         vec
     }
 
-    pub fn append_read_names_rhs<'a>(&'a self, names: &mut Vec<&'a str>) {
+    pub fn read_names_lhs(&self) -> Vec<&str> {
+        let mut vec = Vec::new();
+        self.append_read_names_lhs(&mut vec);
+        vec
+    }
+
+    fn append_read_names_rhs<'a>(&'a self, names: &mut Vec<&'a str>) {
         match self {
             Expr::Name(name) => names.push(name.as_str()),
             Expr::Deref { ptr, .. } => ptr.append_read_names_rhs(names),
@@ -279,7 +285,7 @@ impl Expr {
         }
     }
 
-    pub fn append_read_names_lhs<'a>(&'a self, names: &mut Vec<&'a str>) {
+    fn append_read_names_lhs<'a>(&'a self, names: &mut Vec<&'a str>) {
         if let Expr::Name(_) = self {
             return;
         }
@@ -302,91 +308,6 @@ impl Expr {
                 func.replace_name(name, expr);
                 for arg in args {
                     arg.replace_name(name, expr);
-                }
-            }
-        }
-    }
-
-    pub fn collapse_cmp(&mut self) {
-        match self {
-            Expr::Name(_) | Expr::Num(_) | Expr::Bool(_) | Expr::Func(_) => {},
-            Expr::Unary { expr, op } if op.is_cmp() => {
-                if let Expr::Binary { op: BinaryOp::Cmp, lhs, rhs } = expr.as_mut() {
-                    lhs.collapse_cmp();
-                    rhs.collapse_cmp();
-                    *self = Expr::Binary { op: op.cmp_op_to_binaryop(), lhs: lhs.clone(), rhs: rhs.clone() };
-                } else {
-                    expr.collapse_cmp();
-                }
-            },
-            Expr::Unary { expr, .. } => expr.collapse_cmp(),
-            Expr::Binary { lhs, rhs, .. } => {
-                lhs.collapse_cmp();
-                rhs.collapse_cmp();
-            }
-            Expr::Deref { ptr, .. } => ptr.collapse_cmp(),
-            Expr::Ref(value) => value.collapse_cmp(),
-            Expr::Call { func, args } => {
-                func.collapse_cmp();
-                for arg in args {
-                    arg.collapse_cmp();
-                }
-            }
-        }
-    }
-
-    pub fn reduce_binops(&mut self) {
-        match self {
-            Expr::Name(_) | Expr::Num(_) | Expr::Bool(_) | Expr::Func(_) => {},
-            Expr::Unary { expr, .. } => expr.reduce_binops(),
-            Expr::Binary { lhs, rhs, op } => {
-                lhs.reduce_binops();
-                rhs.reduce_binops();
-
-                if let Expr::Num(n) = rhs.as_ref() &&
-                    let Expr::Binary { op: op2, lhs: lhs2, rhs: rhs2 } = lhs.as_mut() &&
-                    let Expr::Num(n2) = rhs2.as_ref() {
-                    match (op, op2) {
-                        (BinaryOp::Add, BinaryOp::Add) =>
-                            *self = Expr::Binary {
-                                op: BinaryOp::Add,
-                                lhs: Box::new(lhs2.take()),
-                                rhs: Box::new(Expr::Num(n + n2))
-                            },
-                        (BinaryOp::Add, BinaryOp::Sub) =>
-                            *self = Expr::Binary {
-                                op: BinaryOp::Sub,
-                                lhs: Box::new(lhs2.take()),
-                                rhs: Box::new(Expr::Num(n2 - n))
-                            },
-                        (BinaryOp::And, op2) if op2.is_logical() && *n != 0 =>
-                            *self = lhs.take(),
-                        _ => {}
-                    }
-                } else if let Expr::Num(n) = rhs.as_ref() &&
-                    *n < 0 && *op == BinaryOp::Sub {
-                    *rhs = Box::new(Expr::Num(-n));
-                    *op = BinaryOp::Add;
-                } else if let Expr::Num(n) = rhs.as_ref() && *n == 0 {
-                    match op {
-                        BinaryOp::Add => *self = lhs.take(),
-                        BinaryOp::Sub => *self = lhs.take(),
-                        BinaryOp::Mul => *self = Expr::Num(0),
-                        _ => {}
-                    };
-                } else if let Expr::Num(1) = rhs.as_ref() &&
-                     let BinaryOp::And = op &&
-                     let Expr::Binary { op: op2, .. } = lhs.as_ref() &&
-                     op2.is_logical() {
-                    *self = lhs.take();
-                }
-            }
-            Expr::Deref { ptr, .. } => ptr.reduce_binops(),
-            Expr::Ref(value) => value.reduce_binops(),
-            Expr::Call { func, args } => {
-                func.reduce_binops();
-                for arg in args {
-                    arg.reduce_binops();
                 }
             }
         }

@@ -170,17 +170,3 @@ impl std::fmt::Display for LirFunc {
         Ok(())
     }
 }
-
-pub fn reduce_binops(code: &mut [Lir]) {
-    for stmt in code {
-        match stmt {
-            Lir::Assign { src, dst } => {
-                src.reduce_binops();
-                dst.reduce_binops();
-            }
-            Lir::Return(expr) => expr.reduce_binops(),
-            Lir::Branch { cond: Some(cond), .. } => cond.reduce_binops(),
-            Lir::Branch { .. } | Lir::Label(_) => {}
-        }
-    }
-}

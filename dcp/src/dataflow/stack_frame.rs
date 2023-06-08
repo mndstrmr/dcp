@@ -1,4 +1,4 @@
-use crate::{mir, expr, lir, Abi};
+use crate::{mir, expr, lir, dataflow::Abi};
 
 fn num_to_name(mut num: usize) -> String {
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz";

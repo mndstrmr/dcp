@@ -13,7 +13,8 @@ pub use func_args::*;
 mod stack_frame;
 pub use stack_frame::*;
 
-pub mod ssaify;
+mod ssaify;
+pub use ssaify::*;
 
 pub struct Abi {
     pub callee_saved: Vec<&'static str>,

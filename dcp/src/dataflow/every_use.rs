@@ -1,4 +1,4 @@
-use crate::{lir, expr, ssaify::Loc};
+use crate::{lir, expr, dataflow::ssaify::Loc};
 
 pub fn elim_ssa_loc(nodes: &mut Vec<lir::LirNode>, loc: Loc) {
     let lir::Lir::Assign { dst: expr::Expr::Name(name), src } = &nodes[loc.node].code[loc.stmt] else {

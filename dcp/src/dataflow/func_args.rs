@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{cfg, lir, expr, Abi};
+use crate::{cfg, lir, expr, dataflow::Abi};
 
 use super::ReadWrite;
 

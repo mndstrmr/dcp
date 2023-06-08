@@ -8,7 +8,7 @@ use capstone::{
     prelude::*,
 };
 
-use crate::{expr, lir, ty, Abi};
+use crate::{expr, lir, ty, dataflow::Abi};
 
 const CMP: &'static str = "cmp";
 
@@ -200,274 +200,283 @@ pub fn to_lir(data: &[u8], base: u64, addr_to_func: &HashMap<u64, expr::FuncId>)
             addr_to_label.insert(insn.address(), label);
         }
 
-        match Arm64Insn::from(insn.id().0) {
-            Arm64Insn::ARM64_INS_SUB => {
-                let dst = op_to_non_mem(&ops[0]);
-                let src1 = op_to_non_mem(&ops[1]);
-                let src2 = op_to_non_mem(&ops[2]);
-                block.push(lir::Lir::Assign {
-                    dst,
-                    src: expr::Expr::Binary {
-                        op: expr::BinaryOp::Sub,
-                        lhs: Box::new(src1),
-                        rhs: Box::new(src2),
-                    },
-                });
-            }
-            Arm64Insn::ARM64_INS_ADD => {
-                let dst = op_to_non_mem(&ops[0]);
-                let src1 = op_to_non_mem(&ops[1]);
-                let src2 = op_to_non_mem(&ops[2]);
-                block.push(lir::Lir::Assign {
-                    dst,
-                    src: expr::Expr::Binary {
-                        op: expr::BinaryOp::Add,
-                        lhs: Box::new(src1),
-                        rhs: Box::new(src2),
-                    },
-                });
-            }
-            Arm64Insn::ARM64_INS_MOV | Arm64Insn::ARM64_INS_LDR | Arm64Insn::ARM64_INS_LDUR => {
-                let dst = op_to_non_mem(&ops[0]);
-                let src = op_to_expr(&ops[1], op_reg_size(&ops[0]));
-                block.push(lir::Lir::Assign {
-                    dst, src
-                });
-            }
-            Arm64Insn::ARM64_INS_STR | Arm64Insn::ARM64_INS_STUR => {
-                let dst = op_to_expr(&ops[1], op_reg_size(&ops[0]));
-                let src = op_to_non_mem(&ops[0]);
-                block.push(lir::Lir::Assign {
-                    dst, src
-                });
-            }
-            Arm64Insn::ARM64_INS_CMP => {
-                let src1 = op_to_non_mem(&ops[0]);
-                let src2 = op_to_non_mem(&ops[1]);
-
-                block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Name(CMP.to_string()),
-                    src: expr::Expr::Binary {
-                        op: expr::BinaryOp::Cmp,
-                        lhs: Box::new(src1.clone()),
-                        rhs: Box::new(src2.clone()),
-                    },
-                });
-            }
-            Arm64Insn::ARM64_INS_SUBS => {
-                let dst = op_to_non_mem(&ops[0]);
-                let src1 = op_to_non_mem(&ops[1]);
-                let src2 = op_to_non_mem(&ops[2]);
-
-                block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Name(CMP.to_string()),
-                    src: expr::Expr::Binary {
-                        op: expr::BinaryOp::Cmp,
-                        lhs: Box::new(src1.clone()),
-                        rhs: Box::new(src2.clone()),
-                    },
-                });
-
-                block.push(lir::Lir::Assign {
-                    dst,
-                    src: expr::Expr::Binary {
-                        op: expr::BinaryOp::Sub,
-                        lhs: Box::new(src1.clone()),
-                        rhs: Box::new(src2.clone()),
-                    },
-                });
-            }
-            Arm64Insn::ARM64_INS_RET => {
-                block.push(lir::Lir::Return(expr::Expr::Name(X[0].to_string())));
-            }
-            Arm64Insn::ARM64_INS_CSEL => {
-                let cond = match cc_to_lir(arch_detail.cc()) {
-                    None => None,
-                    Some(op) => Some(expr::Expr::Unary {
-                        op,
-                        expr: Box::new(expr::Expr::Name(CMP.to_string())),
-                    }),
-                };
-
-                let dst = op_to_non_mem(&ops[0]);
-                let src1 = op_to_non_mem(&ops[1]);
-                let src2 = op_to_non_mem(&ops[2]);
-
-                let label1 = block.new_label();
-                let label2 = block.new_label();
-                let label3 = block.new_label();
-
-                block.push(lir::Lir::Branch {
-                    cond,
-                    target: label2.clone(),
-                });
-                block.push(lir::Lir::Label(label1));
-                block.push(lir::Lir::Assign {
-                    dst: dst.clone(),
-                    src: src2,
-                });
-                block.push(lir::Lir::Branch {
-                    cond: None,
-                    target: label3.clone(),
-                });
-                block.push(lir::Lir::Label(label2));
-                block.push(lir::Lir::Assign {
-                    dst,
-                    src: src1,
-                });
-                block.push(lir::Lir::Label(label3));
-            }
-            Arm64Insn::ARM64_INS_CSET => {
-                let cond = match cc_to_lir(arch_detail.cc()) {
-                    None => expr::Expr::Num(1),
-                    Some(op) => expr::Expr::Unary {
-                        op,
-                        expr: Box::new(expr::Expr::Name(CMP.to_string())),
-                    },
-                };
-
-                let dst = op_to_non_mem(&ops[0]);
-
-                block.push(lir::Lir::Assign {
-                    dst: dst.clone(),
-                    src: cond,
-                });
-            }
-            Arm64Insn::ARM64_INS_BL => {
-                let addr = match &ops[0] {
-                    ArchOperand::Arm64Operand(Arm64Operand {
-                        op_type: Arm64OperandType::Imm(val),
-                        ..
-                    }) =>
-                        match addr_to_func.get(&(*val as u64)) {
-                            Some(func) => expr::Expr::Func(*func),
-                            None => expr::Expr::Num(*val),
-                        },
-                    _ => panic!("Branch operand type"),
-                };
-
-                block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Name(X[0].to_string()),
-                    src: expr::Expr::Call {
-                        func: Box::new(addr),
-                        args: vec![],
-                    },
-                });
-            }
-            Arm64Insn::ARM64_INS_B => {
-                let cond = match cc_to_lir(arch_detail.cc()) {
-                    None => None,
-                    Some(op) => Some(expr::Expr::Unary {
-                        op,
-                        expr: Box::new(expr::Expr::Name(CMP.to_string())),
-                    }),
-                };
-
-                let target = match &ops[0] {
-                    ArchOperand::Arm64Operand(Arm64Operand {
-                        op_type: Arm64OperandType::Imm(val),
-                        ..
-                    }) => {
-                        if let Some(label) = addr_to_label.get(&(*val as u64)) {
-                            *label
-                        } else {
-                            let label = block.new_label();
-                            addr_to_label.insert(*val as u64, label);
-                            label
-                        }
-                    }
-                    _ => panic!("Branch operand type"),
-                };
-
-                block.push(lir::Lir::Branch {
-                    cond,
-                    target,
-                });
-            }
-            Arm64Insn::ARM64_INS_TBNZ => {
-                let src = op_to_non_mem(&ops[0]);
-
-                let target = match &ops[2] {
-                    ArchOperand::Arm64Operand(Arm64Operand {
-                        op_type: Arm64OperandType::Imm(val),
-                        ..
-                    }) => {
-                        if let Some(label) = addr_to_label.get(&(*val as u64)) {
-                            *label
-                        } else {
-                            let label = block.new_label();
-                            addr_to_label.insert(*val as u64, label);
-                            label
-                        }
-                    }
-                    _ => panic!("Branch operand type"),
-                };
-
-                block.push(lir::Lir::Branch {
-                    cond: Some(src),
-                    target,
-                });
-            }
-            // FIXME: This is wrong. What if it updates itself?
-            Arm64Insn::ARM64_INS_STP => {
-                let src1 = op_to_non_mem(&ops[0]);
-                let src2 = op_to_non_mem(&ops[1]);
-                let dest = op_to_mem_addr(&ops[2]);
-                let size = op_reg_size(&ops[0]);
-
-                block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Deref {
-                        ptr: Box::new(dest.clone()),
-                        size
-                    },
-                    src: src1,
-                });
-
-                block.push(lir::Lir::Assign {
-                    dst: expr::Expr::Deref {
-                        ptr: Box::new(expr::Expr::Binary {
-                            op: expr::BinaryOp::Add,
-                            lhs: Box::new(dest),
-                            rhs: Box::new(expr::Expr::Num(8)),
-                        }),
-                        size
-                    },
-                    src: src2,
-                });
-            }
-            Arm64Insn::ARM64_INS_LDP => {
-                let src1 = op_to_non_mem(&ops[0]);
-                let src2 = op_to_non_mem(&ops[1]);
-                let dest = op_to_mem_addr(&ops[2]);
-                let size = op_reg_size(&ops[0]);
-
-                block.push(lir::Lir::Assign {
-                    dst: src1,
-                    src: expr::Expr::Deref {
-                        ptr: Box::new(dest.clone()),
-                        size
-                    },
-                });
-
-                block.push(lir::Lir::Assign {
-                    dst: src2,
-                    src: expr::Expr::Deref {
-                        ptr: Box::new(expr::Expr::Binary {
-                            op: expr::BinaryOp::Add,
-                            lhs: Box::new(dest),
-                            rhs: Box::new(expr::Expr::Num(8)),
-                        }),
-                        size
-                    },
-                });
-            }
-            _ => todo!(
-                "Unimplented instruction: {} {}",
-                insn.mnemonic().unwrap(),
-                insn.op_str().unwrap()
-            ),
-        }
+        gen_insn(insn, &ops, arch_detail, &mut block, addr_to_func, &mut addr_to_label);
     }
 
     Ok(block.block())
+}
+
+fn gen_insn(
+    insn: &capstone::Insn,
+    ops: &[capstone::arch::ArchOperand], arch_detail: &capstone::arch::arm64::Arm64InsnDetail,
+    block: &mut lir::LirFuncBuilder,
+    addr_to_func: &HashMap<u64, expr::FuncId>, addr_to_label: &mut HashMap<u64, lir::Label>
+) {
+    match Arm64Insn::from(insn.id().0) {
+        Arm64Insn::ARM64_INS_SUB => {
+            let dst = op_to_non_mem(&ops[0]);
+            let src1 = op_to_non_mem(&ops[1]);
+            let src2 = op_to_non_mem(&ops[2]);
+            block.push(lir::Lir::Assign {
+                dst,
+                src: expr::Expr::Binary {
+                    op: expr::BinaryOp::Sub,
+                    lhs: Box::new(src1),
+                    rhs: Box::new(src2),
+                },
+            });
+        }
+        Arm64Insn::ARM64_INS_ADD => {
+            let dst = op_to_non_mem(&ops[0]);
+            let src1 = op_to_non_mem(&ops[1]);
+            let src2 = op_to_non_mem(&ops[2]);
+            block.push(lir::Lir::Assign {
+                dst,
+                src: expr::Expr::Binary {
+                    op: expr::BinaryOp::Add,
+                    lhs: Box::new(src1),
+                    rhs: Box::new(src2),
+                },
+            });
+        }
+        Arm64Insn::ARM64_INS_MOV | Arm64Insn::ARM64_INS_LDR | Arm64Insn::ARM64_INS_LDUR => {
+            let dst = op_to_non_mem(&ops[0]);
+            let src = op_to_expr(&ops[1], op_reg_size(&ops[0]));
+            block.push(lir::Lir::Assign {
+                dst, src
+            });
+        }
+        Arm64Insn::ARM64_INS_STR | Arm64Insn::ARM64_INS_STUR => {
+            let dst = op_to_expr(&ops[1], op_reg_size(&ops[0]));
+            let src = op_to_non_mem(&ops[0]);
+            block.push(lir::Lir::Assign {
+                dst, src
+            });
+        }
+        Arm64Insn::ARM64_INS_CMP => {
+            let src1 = op_to_non_mem(&ops[0]);
+            let src2 = op_to_non_mem(&ops[1]);
+
+            block.push(lir::Lir::Assign {
+                dst: expr::Expr::Name(CMP.to_string()),
+                src: expr::Expr::Binary {
+                    op: expr::BinaryOp::Cmp,
+                    lhs: Box::new(src1.clone()),
+                    rhs: Box::new(src2.clone()),
+                },
+            });
+        }
+        Arm64Insn::ARM64_INS_SUBS => {
+            let dst = op_to_non_mem(&ops[0]);
+            let src1 = op_to_non_mem(&ops[1]);
+            let src2 = op_to_non_mem(&ops[2]);
+
+            block.push(lir::Lir::Assign {
+                dst: expr::Expr::Name(CMP.to_string()),
+                src: expr::Expr::Binary {
+                    op: expr::BinaryOp::Cmp,
+                    lhs: Box::new(src1.clone()),
+                    rhs: Box::new(src2.clone()),
+                },
+            });
+
+            block.push(lir::Lir::Assign {
+                dst,
+                src: expr::Expr::Binary {
+                    op: expr::BinaryOp::Sub,
+                    lhs: Box::new(src1.clone()),
+                    rhs: Box::new(src2.clone()),
+                },
+            });
+        }
+        Arm64Insn::ARM64_INS_RET => {
+            block.push(lir::Lir::Return(expr::Expr::Name(X[0].to_string())));
+        }
+        Arm64Insn::ARM64_INS_CSEL => {
+            let cond = match cc_to_lir(arch_detail.cc()) {
+                None => None,
+                Some(op) => Some(expr::Expr::Unary {
+                    op,
+                    expr: Box::new(expr::Expr::Name(CMP.to_string())),
+                }),
+            };
+
+            let dst = op_to_non_mem(&ops[0]);
+            let src1 = op_to_non_mem(&ops[1]);
+            let src2 = op_to_non_mem(&ops[2]);
+
+            let label1 = block.new_label();
+            let label2 = block.new_label();
+            let label3 = block.new_label();
+
+            block.push(lir::Lir::Branch {
+                cond,
+                target: label2.clone(),
+            });
+            block.push(lir::Lir::Label(label1));
+            block.push(lir::Lir::Assign {
+                dst: dst.clone(),
+                src: src2,
+            });
+            block.push(lir::Lir::Branch {
+                cond: None,
+                target: label3.clone(),
+            });
+            block.push(lir::Lir::Label(label2));
+            block.push(lir::Lir::Assign {
+                dst,
+                src: src1,
+            });
+            block.push(lir::Lir::Label(label3));
+        }
+        Arm64Insn::ARM64_INS_CSET => {
+            let cond = match cc_to_lir(arch_detail.cc()) {
+                None => expr::Expr::Num(1),
+                Some(op) => expr::Expr::Unary {
+                    op,
+                    expr: Box::new(expr::Expr::Name(CMP.to_string())),
+                },
+            };
+
+            let dst = op_to_non_mem(&ops[0]);
+
+            block.push(lir::Lir::Assign {
+                dst: dst.clone(),
+                src: cond,
+            });
+        }
+        Arm64Insn::ARM64_INS_BL => {
+            let addr = match &ops[0] {
+                ArchOperand::Arm64Operand(Arm64Operand {
+                    op_type: Arm64OperandType::Imm(val),
+                    ..
+                }) =>
+                    match addr_to_func.get(&(*val as u64)) {
+                        Some(func) => expr::Expr::Func(*func),
+                        None => expr::Expr::Num(*val),
+                    },
+                _ => panic!("Branch operand type"),
+            };
+
+            block.push(lir::Lir::Assign {
+                dst: expr::Expr::Name(X[0].to_string()),
+                src: expr::Expr::Call {
+                    func: Box::new(addr),
+                    args: vec![],
+                },
+            });
+        }
+        Arm64Insn::ARM64_INS_B => {
+            let cond = match cc_to_lir(arch_detail.cc()) {
+                None => None,
+                Some(op) => Some(expr::Expr::Unary {
+                    op,
+                    expr: Box::new(expr::Expr::Name(CMP.to_string())),
+                }),
+            };
+
+            let target = match &ops[0] {
+                ArchOperand::Arm64Operand(Arm64Operand {
+                    op_type: Arm64OperandType::Imm(val),
+                    ..
+                }) => {
+                    if let Some(label) = addr_to_label.get(&(*val as u64)) {
+                        *label
+                    } else {
+                        let label = block.new_label();
+                        addr_to_label.insert(*val as u64, label);
+                        label
+                    }
+                }
+                _ => panic!("Branch operand type"),
+            };
+
+            block.push(lir::Lir::Branch {
+                cond,
+                target,
+            });
+        }
+        Arm64Insn::ARM64_INS_TBNZ => {
+            let src = op_to_non_mem(&ops[0]);
+
+            let target = match &ops[2] {
+                ArchOperand::Arm64Operand(Arm64Operand {
+                    op_type: Arm64OperandType::Imm(val),
+                    ..
+                }) => {
+                    if let Some(label) = addr_to_label.get(&(*val as u64)) {
+                        *label
+                    } else {
+                        let label = block.new_label();
+                        addr_to_label.insert(*val as u64, label);
+                        label
+                    }
+                }
+                _ => panic!("Branch operand type"),
+            };
+
+            block.push(lir::Lir::Branch {
+                cond: Some(src),
+                target,
+            });
+        }
+        // FIXME: This is wrong. What if it updates itself?
+        Arm64Insn::ARM64_INS_STP => {
+            let src1 = op_to_non_mem(&ops[0]);
+            let src2 = op_to_non_mem(&ops[1]);
+            let dest = op_to_mem_addr(&ops[2]);
+            let size = op_reg_size(&ops[0]);
+
+            block.push(lir::Lir::Assign {
+                dst: expr::Expr::Deref {
+                    ptr: Box::new(dest.clone()),
+                    size
+                },
+                src: src1,
+            });
+
+            block.push(lir::Lir::Assign {
+                dst: expr::Expr::Deref {
+                    ptr: Box::new(expr::Expr::Binary {
+                        op: expr::BinaryOp::Add,
+                        lhs: Box::new(dest),
+                        rhs: Box::new(expr::Expr::Num(8)),
+                    }),
+                    size
+                },
+                src: src2,
+            });
+        }
+        Arm64Insn::ARM64_INS_LDP => {
+            let src1 = op_to_non_mem(&ops[0]);
+            let src2 = op_to_non_mem(&ops[1]);
+            let dest = op_to_mem_addr(&ops[2]);
+            let size = op_reg_size(&ops[0]);
+
+            block.push(lir::Lir::Assign {
+                dst: src1,
+                src: expr::Expr::Deref {
+                    ptr: Box::new(dest.clone()),
+                    size
+                },
+            });
+
+            block.push(lir::Lir::Assign {
+                dst: src2,
+                src: expr::Expr::Deref {
+                    ptr: Box::new(expr::Expr::Binary {
+                        op: expr::BinaryOp::Add,
+                        lhs: Box::new(dest),
+                        rhs: Box::new(expr::Expr::Num(8)),
+                    }),
+                    size
+                },
+            });
+        }
+        _ => todo!(
+            "Unimplented instruction: {} {}",
+            insn.mnemonic().unwrap(),
+            insn.op_str().unwrap()
+        ),
+    }
 }

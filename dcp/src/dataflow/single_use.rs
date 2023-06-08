@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{cfg, lir, Abi, expr};
+use crate::{cfg, lir, dataflow::Abi, expr};
 
 // if (1) is `x = a` and (2) is `b`. (1) can be deleted and `b` can have `x` replaced with `a` under the following conditions:
 //  1. the value of x at (2) will always be derived from (1) expression

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{cfg, lir, Abi, expr};
+use crate::{cfg, lir, dataflow::Abi, expr};
 
 fn has_reader(cfg: &cfg::ControlFlowGraph, nodes: &[lir::LirNode], node: usize, stmt: usize, name: &str, abi: &Abi, visited: &mut HashSet<usize>) -> bool {
     if !visited.insert(node) {
