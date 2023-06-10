@@ -16,6 +16,8 @@ pub use stack_frame::*;
 mod ssaify;
 pub use ssaify::*;
 
+use crate::{cfg, lir};
+
 pub struct Abi {
     pub callee_saved: Vec<&'static str>,
     pub global: Vec<&'static str>, // FIXME: Don't put this here
@@ -28,4 +30,46 @@ enum ReadWrite {
     Reads,
     Writes,
     Neither
+}
+
+pub fn compress_cfg(cfg: &mut cfg::ControlFlowGraph, nodes: &mut Vec<lir::LirNode>) {
+    // println!("{}", cfg.to_dot(|n| format!("\"{n}: {}\"", nodes[n].code.len())));
+
+    let mut n = 0;
+    while n < nodes.len() {
+        let node = &nodes[n];
+        if node.code.len() > 1 {
+            n += 1;
+            continue;
+        }
+
+        if node.code.len() == 1 && !matches!(node.code.last().unwrap(), lir::Lir::Branch { cond: None, .. }) {
+            n += 1;
+            continue;
+        }
+
+        let Some(target) = cfg.outgoing_for(n).iter().next().cloned() else {
+            n += 1;
+            continue;
+        };
+
+        for incoming in cfg.incoming_for(n).clone() {
+            cfg.remove_edge(incoming, n);
+            cfg.add_edge(incoming, target);
+
+            match nodes[incoming].code.last_mut() {
+                Some(lir::Lir::Branch { target: dst, .. }) => {
+                    if dst.0 == n {
+                        *dst = lir::Label(target);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        n += 1;
+    }
+
+    cfg.trim_unreachable();
+    // println!("{}", cfg.to_dot(|n| format!("\"{n}: {}\"", nodes[n].code.len())));
 }

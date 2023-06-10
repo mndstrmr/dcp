@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use wasmparser::Operator;
 
 use crate::{dataflow::Abi, lir, expr, ty};
@@ -62,6 +64,10 @@ impl StackNaming {
     pub fn peek(&self) -> StackName {
         StackName(self.names.last().cloned().unwrap())
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
 }
 
 struct BlockStack {
@@ -103,28 +109,52 @@ impl BlockStack {
     }
 }
 
-pub fn to_lir(function: &wasmparser::FunctionBody, func_types: &[wasmparser::FuncType]) -> Result<lir::LirFunc, String> {
+pub enum TranslationError<'a> {
+    UnknownInstruction(wasmparser::Operator<'a>),
+    Decode,
+    BadFunctionIndex
+}
+
+impl<'a> Display for TranslationError<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TranslationError::UnknownInstruction(insn) => write!(f, "do not know how to translate {:?}", insn),
+            TranslationError::Decode => write!(f, "malformed code"),
+            TranslationError::BadFunctionIndex => write!(f, "function indexed a type which does not exist")
+        }
+    }
+}
+
+pub fn to_lir<'a>(function: &'a wasmparser::FunctionBody, func_types: &[wasmparser::FuncType]) -> Result<lir::LirFunc, TranslationError<'a>> {
     let mut block = lir::LirFuncBuilder::new();
 
     let mut blocks = BlockStack::new();
     let mut stack = StackNaming::new();
 
     for insn in function.get_operators_reader().expect("Could not make operators reader") {
-        println!("{:?}", insn);
-        gen_insn(insn.expect("Could not decode instruction"), &mut block, &mut blocks, &mut stack, func_types);
+        let insn = match insn {
+            Ok(insn) => insn,
+            Err(_) => return Err(TranslationError::Decode)
+        };
+        // println!("{:?}", insn);
+        gen_insn(insn, &mut block, &mut blocks, &mut stack, func_types)?;
     }
 
-    block.push(lir::Lir::Return(stack.pop().expr()));
+    if stack.is_empty() {
+        block.push(lir::Lir::Return(expr::Expr::Num(0)));
+    } else {
+        block.push(lir::Lir::Return(stack.pop().expr()));
+    }
 
     Ok(block.block())
 }
 
-fn gen_insn(
-    insn: wasmparser::Operator,
+fn gen_insn<'a>(
+    insn: wasmparser::Operator<'a>,
     block: &mut lir::LirFuncBuilder,
     blocks: &mut BlockStack, stack: &mut StackNaming,
     func_types: &[wasmparser::FuncType]
-) {
+) -> Result<(), TranslationError<'a>> {
     match insn {
         Operator::End => {
             let (start, end, loops) = blocks.pop();
@@ -132,26 +162,32 @@ fn gen_insn(
                 block.push(lir::Lir::Branch { cond: None, target: start });
             }
             block.push(lir::Lir::Label(end));
+            Ok(())
         }
         Operator::LocalGet { local_index } => {
             let dst = stack.push();
             block.push(lir::Lir::Assign { src: local_ref(local_index as usize), dst: dst.expr() });
+            Ok(())
         }
         Operator::LocalSet { local_index } => {
             let src = stack.pop();
             block.push(lir::Lir::Assign { src: src.expr(), dst: local_ref(local_index as usize) });
+            Ok(())
         }
         Operator::LocalTee { local_index } => {
             let src = stack.peek();
             block.push(lir::Lir::Assign { src: src.expr(), dst: local_ref(local_index as usize) });
+            Ok(())
         }
         Operator::I32Const { value } => {
             let dst = stack.push();
             block.push(lir::Lir::Assign { src: expr::Expr::Num(value as i64), dst: dst.expr() });
+            Ok(())
         }
         Operator::I64Const { value } => {
             let dst = stack.push();
             block.push(lir::Lir::Assign { src: expr::Expr::Num(value), dst: dst.expr() });
+            Ok(())
         }
         Operator::Select => {
             let i = stack.pop();
@@ -175,45 +211,30 @@ fn gen_insn(
             block.push(lir::Lir::Label(step));
             block.push(lir::Lir::Assign { src: v1.expr(), dst: dst.expr() });
             block.push(lir::Lir::Label(end));
+            Ok(())
         }
-        Operator::I32Add | Operator::I64Add | Operator::F32Add | Operator::F64Add => {
-            let src2 = stack.pop();
-            let src1 = stack.pop();
-            let dst = stack.push();
-            block.push(lir::Lir::Assign {
-                src: expr::Expr::Binary {
-                    op: expr::BinaryOp::Add,
-                    lhs: src1.bexpr(),
-                    rhs: src2.bexpr(),
-                },
-                dst: dst.expr()
-            });
-        }
-        Operator::I32And | Operator::I64And => {
-            let src2 = stack.pop();
-            let src1 = stack.pop();
-            let dst = stack.push();
-            block.push(lir::Lir::Assign {
-                src: expr::Expr::Binary {
-                    op: expr::BinaryOp::And,
-                    lhs: src1.bexpr(),
-                    rhs: src2.bexpr(),
-                },
-                dst: dst.expr()
-            });
-        }
+        Operator::I32Add | Operator::I64Add | Operator::F32Add | Operator::F64Add |
+        Operator::I32And | Operator::I64And |
+        Operator::I32Shl | Operator::I64Shl |
         Operator::I32Sub | Operator::I64Sub | Operator::F32Sub | Operator::F64Sub => {
             let src2 = stack.pop();
             let src1 = stack.pop();
             let dst = stack.push();
             block.push(lir::Lir::Assign {
                 src: expr::Expr::Binary {
-                    op: expr::BinaryOp::Sub,
+                    op: match insn {
+                        Operator::I32Add | Operator::I64Add | Operator::F32Add | Operator::F64Add => expr::BinaryOp::Add,
+                        Operator::I32And | Operator::I64And => expr::BinaryOp::And,
+                        Operator::I32Sub | Operator::I64Sub | Operator::F32Sub | Operator::F64Sub => expr::BinaryOp::Sub,
+                        Operator::I32Shl | Operator::I64Shl => expr::BinaryOp::Shl,
+                        _ => unreachable!()
+                    },
                     lhs: src1.bexpr(),
                     rhs: src2.bexpr(),
                 },
                 dst: dst.expr()
             });
+            Ok(())
         }
         Operator::GlobalGet { global_index: 0 } => {
             let dst = stack.push();
@@ -221,6 +242,7 @@ fn gen_insn(
                 src: expr::Expr::Name("sp".to_string()),
                 dst: dst.expr()
             });
+            Ok(())
         }
         Operator::GlobalSet { global_index: 0 } => {
             let src = stack.pop();
@@ -228,8 +250,9 @@ fn gen_insn(
                 src: src.expr(),
                 dst: expr::Expr::Name("sp".to_string())
             });
+            Ok(())
         }
-        Operator::I32Store { memarg: wasmparser::MemArg { offset, .. } } => {
+        Operator::I32Store { memarg: wasmparser::MemArg { offset, .. } } | Operator::I32Store8 { memarg: wasmparser::MemArg { offset, .. } } => {
             let src = stack.pop();
             let addr = stack.pop();
             block.push(lir::Lir::Assign {
@@ -239,12 +262,19 @@ fn gen_insn(
                         lhs: addr.bexpr(),
                         rhs: Box::new(expr::Expr::Num(offset as i64)),
                     }),
-                    size: ty::Size::Size32
+                    size: match insn {
+                        Operator::I32Store { .. } => ty::Size::Size32,
+                        Operator::I32Store8 { .. } => ty::Size::Size8,
+                        _ => unreachable!()
+                    }
                 },
                 src: src.expr()
             });
+            Ok(())
         }
-        Operator::I32Load { memarg: wasmparser::MemArg { offset, .. } } => {
+        Operator::I32Load { memarg: wasmparser::MemArg { offset, .. } } |
+        Operator::I32Load8U { memarg: wasmparser::MemArg { offset, .. } } |
+        Operator::I32Load16U { memarg: wasmparser::MemArg { offset, .. } } => {
             let addr = stack.pop();
             let dst = stack.push();
             block.push(lir::Lir::Assign {
@@ -255,34 +285,50 @@ fn gen_insn(
                         lhs: addr.bexpr(),
                         rhs: Box::new(expr::Expr::Num(offset as i64)),
                     }),
-                    size: ty::Size::Size32
+                    size: match insn {
+                        Operator::I32Load { .. } => ty::Size::Size32,
+                        Operator::I32Load8U { .. } => ty::Size::Size8,
+                        Operator::I32Load16U { .. } => ty::Size::Size16,
+                        _ => unreachable!()
+                    }
                 }
             });
+            Ok(())
         }
         Operator::Return => {
             block.push(lir::Lir::Branch { cond: None, target: blocks.ret() });
             block.push(lir::Lir::Label(blocks.tmp_label()));
+            Ok(())
         }
         Operator::Block { blockty: wasmparser::BlockType::Empty } => {
             let start = blocks.push_block(false);
             block.push(lir::Lir::Label(start));
+            Ok(())
         }
         Operator::Loop { blockty: wasmparser::BlockType::Empty } => {
             let start = blocks.push_block(true);
             block.push(lir::Lir::Label(start));
+            Ok(())
         }
-        Operator::I32LtS => {
+        Operator::I32LtS | Operator::I32LeS | Operator::I32GtS | Operator::I32GeS => {
             let src2 = stack.pop();
             let src1 = stack.pop();
             let dst = stack.push();
             block.push(lir::Lir::Assign {
                 src: expr::Expr::Binary {
-                    op: expr::BinaryOp::Lt,
+                    op: match insn {
+                        Operator::I32LtS => expr::BinaryOp::Lt,
+                        Operator::I32LeS => expr::BinaryOp::Le,
+                        Operator::I32GtS => expr::BinaryOp::Gt,
+                        Operator::I32GeS => expr::BinaryOp::Ge,
+                        _ => unreachable!()
+                    },
                     lhs: src1.bexpr(),
                     rhs: src2.bexpr(),
                 },
                 dst: dst.expr()
             });
+            Ok(())
         }
         Operator::I32Eqz => {
             let src = stack.pop();
@@ -294,6 +340,7 @@ fn gen_insn(
                 },
                 dst: dst.expr()
             });
+            Ok(())
         }
         Operator::BrIf { relative_depth } => {
             let target = blocks.branch_target_rel(relative_depth as usize);
@@ -303,6 +350,7 @@ fn gen_insn(
                 target
             });
             block.push(lir::Lir::Label(blocks.tmp_label()));
+            Ok(())
         }
         Operator::Br { relative_depth } => {
             let target = blocks.branch_target_rel(relative_depth as usize);
@@ -311,22 +359,46 @@ fn gen_insn(
                 target
             });
             block.push(lir::Lir::Label(blocks.tmp_label()));
+            Ok(())
         }
         Operator::Call { function_index } => {
-            assert_eq!(func_types[function_index as usize].results().len(), 1);
+            if function_index as usize >= func_types.len() {
+                return Err(TranslationError::BadFunctionIndex)
+            }
+
+
             let mut args = Vec::new();
             for _ in func_types[function_index as usize].params() {
                 args.push(stack.pop().expr());
             }
-            let res = stack.push();
-            block.push(lir::Lir::Assign {
-                dst: res.expr(),
-                src: expr::Expr::Call {
+
+            if func_types[function_index as usize].results().len() == 0 {
+                block.push(lir::Lir::Do(expr::Expr::Call {
                     func: Box::new(expr::Expr::Func(expr::FuncId(function_index as usize))),
                     args
-                }
-            });
+                }));
+            } else {
+                let res = stack.push();
+                assert_eq!(func_types[function_index as usize].results().len(), 1);
+                block.push(lir::Lir::Assign {
+                    dst: res.expr(),
+                    src: expr::Expr::Call {
+                        func: Box::new(expr::Expr::Func(expr::FuncId(function_index as usize))),
+                        args
+                    }
+                });
+            }
+
+            Ok(())
         }
-        _ => todo!()
+        Operator::Drop => {
+            stack.pop();
+            Ok(())
+        }
+        Operator::Unreachable => {
+            // FIXME: Add something here
+            Ok(())
+        },
+        _ => Err(TranslationError::UnknownInstruction(insn))
     }
 }

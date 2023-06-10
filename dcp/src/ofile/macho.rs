@@ -26,9 +26,31 @@ pub fn code_from(buf: &[u8]) -> Result<(CodeResult, Option<MachoArch>), OfileErr
     let mut code = None;
     let mut symbols = None;
 
+    fn extract_header_commands(ofile: OFile) -> Result<(mach_object::MachHeader, Vec<mach_object::MachCommand>), OfileErr> {
+        match ofile {
+            OFile::MachFile { header, commands } => Ok((header, commands)),
+            OFile::FatFile { files, .. } => {
+                if files.is_empty() {
+                    return Err(OfileErr::NoCode)
+                }
+
+                // Prioritise arm64 for now, since we support that
+                let mut last = None;
+                for (arch, file) in files {
+                    if arch.cputype == mach_object::CPU_TYPE_ARM64 {
+                        return extract_header_commands(file);
+                    }
+                    last = Some(file);
+                }
+    
+                extract_header_commands(last.unwrap())
+            },
+            _ => todo!()
+        }
+    }
+
     let (header, commands) = match OFile::parse(&mut cursor) {
-        Ok(OFile::MachFile { header, commands }) => (header, commands),
-        Ok(_) => todo!(),
+        Ok(x) => extract_header_commands(x)?,
         Err(mach_object::MachError::UnknownMagic(_)) => return Err(OfileErr::UnknownFormat),
         Err(err) => {
             eprintln!("mach_object err: {err}");
@@ -38,7 +60,7 @@ pub fn code_from(buf: &[u8]) -> Result<(CodeResult, Option<MachoArch>), OfileErr
 
     let arch = match header.cputype {
         mach_object::CPU_TYPE_ARM64 => Some(MachoArch::Arm64),
-        mach_object::CPU_TYPE_X86_64 => Some(MachoArch::Arm64),
+        mach_object::CPU_TYPE_X86_64 => Some(MachoArch::X8664),
         _ => None
     };
 

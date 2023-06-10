@@ -68,7 +68,14 @@ fn reduce_binops_in(sexpr: &mut expr::Expr) {
                         *sexpr = lhs.take(),
                     _ => {}
                 }
-            } else if let expr::Expr::Num(n) = rhs.as_ref() &&
+        } else if
+                let expr::Expr::Num(n1) = rhs.as_ref() &&
+                let expr::Expr::Num(n2) = lhs.as_ref() {
+            match op {
+                expr::BinaryOp::Add => *sexpr = expr::Expr::Num(n1 + n2),
+                _ => {}
+            }
+        } else if let expr::Expr::Num(n) = rhs.as_ref() &&
                 *n < 0 && *op == expr::BinaryOp::Sub {
                 *rhs = Box::new(expr::Expr::Num(-n));
                 *op = expr::BinaryOp::Add;
@@ -118,6 +125,7 @@ pub fn reduce_binops_lir(blocks: &mut [lir::LirNode]) {
                     reduce_binops_in(dst);
                 }
                 lir::Lir::Return(expr) => reduce_binops_in(expr),
+                lir::Lir::Do(expr) => reduce_binops_in(expr),
                 lir::Lir::Branch { cond: Some(cond), .. } => reduce_binops_in(cond),
                 lir::Lir::Branch { .. } | lir::Lir::Label(_) => {}
             }

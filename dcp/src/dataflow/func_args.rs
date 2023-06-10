@@ -125,8 +125,8 @@ fn insert_func_args_in_expr(sigs: &[GlobalSig], expr: &mut expr::Expr) {
             insert_func_args_in_expr(sigs, expr);
         }
         expr::Expr::Call { func, args } => {
-            if let expr::Expr::Func(funcid) = func.as_ref() {
-                args.extend(sigs[funcid.0].args.iter().cloned().map(str::to_string).map(expr::Expr::Name));
+            if let expr::Expr::Func(funcid) = func.as_ref() && let Some(sig) = sigs.get(funcid.0) {
+                args.extend(sig.args.iter().cloned().map(str::to_string).map(expr::Expr::Name));
             } else {
                 insert_func_args_in_expr(sigs, func);
                 for arg in args {
@@ -155,6 +155,7 @@ fn insert_func_args_in(sigs: &[GlobalSig], node: usize, nodes: &mut Vec<lir::Lir
                 insert_func_args_in_expr(sigs, cond);
             }
             lir::Lir::Return(expr) => insert_func_args_in_expr(sigs, expr),
+            lir::Lir::Do(expr) => insert_func_args_in_expr(sigs, expr),
             lir::Lir::Label(_) | lir::Lir::Branch { .. } => {}
         }
     }

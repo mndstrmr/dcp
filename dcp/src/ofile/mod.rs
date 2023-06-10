@@ -57,14 +57,25 @@ fn decode_macho(code: macho::CodeResult, arch: Option<macho::MachoArch>) -> Resu
 fn decode_wasm(module: wasmmod::Module) -> Result<(Abi, Vec<GlobalCfgNode>), DecodeError> {
     Ok((
         wasm::abi(),
-        module.functions().iter().map(|func| {
-            let lir = wasm::to_lir(func, module.types()).expect("Could not convert to LIR");
-            println!("{}", lir);
+        module.functions().iter().enumerate().filter_map(|(i, func)| {
+            if i < 10 || i > 15 {
+                return None;
+            }
+
+            let lir = match wasm::to_lir(func, module.types()) {
+                Ok(lir) => lir,
+                Err(err) => {
+                    eprintln!("Could not translate wasm function: {err}");
+                    return None
+                }
+            };
+            // println!("func {i}:");
+            // println!("{}", lir);
 
             let blir = lir_to_lirnodes(lir);
             let cfg = gen_local_cfg(&blir);
 
-            GlobalCfgNode::new(cfg, blir)
+            Some(GlobalCfgNode::new(cfg, blir))
         }).collect()
     ))
 }

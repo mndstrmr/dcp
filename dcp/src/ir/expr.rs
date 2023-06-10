@@ -46,7 +46,7 @@ impl UnaryOp {
 pub enum BinaryOp {
     Eq, Ne, Lt, Le, Gt, Ge,
     Add, Sub, Mul, Div,
-    And, Or,
+    And, Or, Shl, Shr,
     Cmp
 }
 
@@ -73,6 +73,8 @@ impl std::fmt::Display for BinaryOp {
             BinaryOp::Sub => "-",
             BinaryOp::Mul => "*",
             BinaryOp::Div => "/",
+            BinaryOp::Shl => "<<",
+            BinaryOp::Shr => ">>",
             BinaryOp::And => "and",
             BinaryOp::Or => "or",
             BinaryOp::Cmp => "cmp",

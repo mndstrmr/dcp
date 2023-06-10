@@ -9,6 +9,7 @@ pub enum Mir {
         dst: expr::Expr
     },
     Return(expr::Expr),
+    Do(expr::Expr),
     Branch {
         cond: Option<expr::Expr>,
         target: lir::Label
@@ -129,6 +130,7 @@ impl From<lir::Lir> for Mir {
             lir::Lir::Assign { src, dst } => Mir::Assign { src, dst},
             lir::Lir::Branch { cond, target } => Mir::Branch { cond, target },
             lir::Lir::Return(expr) => Mir::Return(expr),
+            lir::Lir::Do(expr) => Mir::Do(expr),
             lir::Lir::Label(label) => Mir::Label(label)
         }
     }
@@ -139,6 +141,7 @@ impl std::fmt::Display for Mir {
         match self {
             Mir::Assign { src, dst } => write!(f, "{dst} = {src}"),
             Mir::Return(expr) => write!(f, "return {expr}"),
+            Mir::Do(expr) => write!(f, "{expr}"),
             Mir::Branch { cond: Some(cond), target } => write!(f, "ifgoto {cond} #{target}"),
             Mir::Branch { cond: None, target } => write!(f, "goto #{target}"),
             Mir::If { cond, true_then, false_then } => {
@@ -204,6 +207,7 @@ pub trait MirVisitor {
             Mir::Break => self.visit_break(),
             Mir::Continue => self.visit_continue(),
             Mir::Return(expr) => self.visit_return(expr),
+            Mir::Do(expr) => self.visit_do(expr),
             Mir::Assign { src, dst } => self.visit_assign(dst, src),
             Mir::Label(label) => self.visit_label(*label),
             Mir::Branch { cond, target } => self.visit_branch(cond.as_ref(), *target),
@@ -219,6 +223,9 @@ pub trait MirVisitor {
     fn visit_break(&mut self) {}
     fn visit_continue(&mut self) {}
     fn visit_return(&mut self, expr: &expr::Expr) {
+        self.visit_expr(expr);
+    }
+    fn visit_do(&mut self, expr: &expr::Expr) {
         self.visit_expr(expr);
     }
     fn visit_assign(&mut self, dst: &expr::Expr, src: &expr::Expr) {
@@ -297,6 +304,7 @@ pub trait MirVisitorMut {
             Mir::Break => self.visit_break(),
             Mir::Continue => self.visit_continue(),
             Mir::Return(expr) => self.visit_return(expr),
+            Mir::Do(expr) => self.visit_do(expr),
             Mir::Assign { src, dst } => self.visit_assign(dst, src),
             Mir::Label(label) => self.visit_label(*label),
             Mir::Branch { cond, target } => self.visit_branch(cond.as_mut(), *target),
@@ -312,6 +320,10 @@ pub trait MirVisitorMut {
     fn visit_break(&mut self) -> MVMAction { MVMAction::Keep }
     fn visit_continue(&mut self) -> MVMAction { MVMAction::Keep }
     fn visit_return(&mut self, expr: &mut expr::Expr) -> MVMAction {
+        self.visit_expr(expr);
+        MVMAction::Keep
+    }
+    fn visit_do(&mut self, expr: &mut expr::Expr) -> MVMAction {
         self.visit_expr(expr);
         MVMAction::Keep
     }
@@ -401,9 +413,39 @@ pub fn contains_continue(code: &[Mir]) -> bool {
         fn visit_continue(&mut self) {
             self.0 = true;
         }
+
+        fn visit_loop(&mut self, _: &[Mir]) {}
+        fn visit_while(&mut self, _: &expr::Expr, _: &[Mir]) {}
+        fn visit_for(&mut self, _: &expr::Expr, _: &[Mir], _: &[Mir]) {}
     }
 
     let mut visitor = ContainsContinue(false);
+    visitor.visit_block(code);
+    visitor.0
+}
+
+pub fn break_count(code: &[Mir]) -> usize {
+    struct BreakCount(usize);
+    
+    impl MirVisitor for BreakCount {
+        fn visit_block(&mut self, code: &[Mir]) {
+            let mut i = 0;
+            while i < code.len() {
+                self.visit(&code[i]);
+                i += 1;
+            }
+        }
+
+        fn visit_break(&mut self) {
+            self.0 += 1;
+        }
+
+        fn visit_loop(&mut self, _: &[Mir]) {}
+        fn visit_while(&mut self, _: &expr::Expr, _: &[Mir]) {}
+        fn visit_for(&mut self, _: &expr::Expr, _: &[Mir], _: &[Mir]) {}
+    }
+
+    let mut visitor = BreakCount(0);
     visitor.visit_block(code);
     visitor.0
 }

@@ -113,7 +113,7 @@ fn cull_fallthrough_jumps_with_end_scope(code: &mut Vec<Mir>, end: Option<&HashS
                 cull_fallthrough_jumps_with_end_scope(code, None);
             }
             Mir::Assign { .. } |  Mir::Branch { .. } | Mir::Return(_) |
-            Mir::Label(_) | Mir::Break | Mir::Continue => {}
+            Mir::Label(_) | Mir::Break | Mir::Continue | Mir::Do(_) => {}
         }
 
         i += 1;

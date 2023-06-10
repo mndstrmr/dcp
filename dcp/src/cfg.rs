@@ -52,6 +52,27 @@ impl ControlFlowGraph {
         });
     }
 
+    pub fn remove_node(&mut self, idx: NodeId) {
+        for incoming in self.incoming_for(idx).clone() {
+            self.nodes.get_mut(&incoming).unwrap().outgoing.remove(&idx);
+        }
+        for outgoing in self.outgoing_for(idx).clone() {
+            self.nodes.get_mut(&outgoing).unwrap().incoming.remove(&idx);
+        }
+        self.nodes.remove(&idx);
+    }
+
+    pub fn remove_node_edges(&mut self, idx: NodeId) {
+        for outgoing in self.outgoing_for(idx).clone() {
+            self.nodes.get_mut(&outgoing).unwrap().incoming.remove(&idx);
+            self.nodes.get_mut(&idx).unwrap().outgoing.remove(&outgoing);
+        }
+        for incoming in self.incoming_for(idx).clone() {
+            self.nodes.get_mut(&incoming).unwrap().outgoing.remove(&idx);
+            self.nodes.get_mut(&idx).unwrap().incoming.remove(&incoming);
+        }
+    }
+
     pub fn add_edge(&mut self, src: NodeId, dest: NodeId) {
         self.nodes.get_mut(&src).expect("Not a valid src node").outgoing.insert(dest);
         self.nodes.get_mut(&dest).expect("Not a valid dest node").incoming.insert(src);
@@ -63,6 +84,11 @@ impl ControlFlowGraph {
 
     pub fn incoming_for(&self, node: NodeId) -> &HashSet<NodeId> {
         &self.nodes.get(&node).unwrap().incoming
+    }
+
+    pub fn remove_edge(&mut self, src: NodeId, dst: NodeId) {
+        self.nodes.get_mut(&src).unwrap().outgoing.remove(&dst);
+        self.nodes.get_mut(&dst).unwrap().incoming.remove(&src);
     }
 
     pub fn nodes(&self) -> HashSet<NodeId> {
@@ -135,7 +161,7 @@ impl ControlFlowGraph {
         }
     }
 
-    pub fn to_dot(&self) -> String {
+    pub fn to_dot<F>(&self, name: F) -> String where F: Fn(NodeId) -> String {
         use std::fmt::Write;
 
         let mut dot = String::new();
@@ -143,17 +169,25 @@ impl ControlFlowGraph {
         dot.push_str("digraph G {");
 
         if let Some(start) = self.entry {
-            write!(dot, "start -> {};", start).unwrap();
+            write!(dot, "start -> {};", name(start)).unwrap();
         }
 
         for node_id in self.nodes.keys() {
             for dest in self.outgoing_for(*node_id) {
-                write!(dot, "{} -> {};", node_id, dest).unwrap();
+                write!(dot, "{} -> {};", name(*node_id), name(*dest)).unwrap();
             }
         }
 
         dot.push_str("}");
 
         dot
+    }
+
+    pub fn trim_unreachable(&mut self) {
+        for node in self.nodes() {
+            if self.entry != Some(node) && self.incoming_for(node).is_empty() {
+                self.remove_node_edges(node);
+            }
+        }
     }
 }

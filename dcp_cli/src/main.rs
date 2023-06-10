@@ -40,7 +40,10 @@ fn main() {
     dcp::dataflow::func_args(&mut global_nodes, &abi);
     let (nodes, sigs): (Vec<_>, Vec<_>) = global_nodes.into_iter().map(dcp::dataflow::GlobalCfgNode::split).unzip();
 
-    for (cfg, mut blir) in nodes {
+    for (mut cfg, mut blir) in nodes {
+        // Add registers to function calls if necessary
+        dcp::dataflow::compress_cfg(&mut cfg, &mut blir);
+
         // Add registers to function calls if necessary
         dcp::dataflow::insert_func_args(&sigs, &mut blir);
         
@@ -72,17 +75,25 @@ fn main() {
         dcp::opt::cull_fallthrough_jumps(&mut mir);
 
         // Improves if/if-else/loop/while/for
-        dcp::opt::inline_terminating_if(&mut mir);
-        dcp::opt::insert_loops(&mut mir);
-        dcp::opt::gotos_to_loop_continues(&mut mir);
-        dcp::opt::gotos_to_loop_breaks(&mut mir);
-        dcp::opt::trim_labels(&mut mir);
-        dcp::opt::elim_unreachable(&mut mir);
-        dcp::opt::step_back_breaks(&mut mir);
-        dcp::opt::final_continues(&mut mir);
-        dcp::opt::loops_to_whiles(&mut mir);
-        dcp::opt::whiles_to_fors(&mut mir);
-        dcp::opt::flip_negated_ifs(&mut mir);
+
+        for _ in 0..5 {
+            dcp::opt::inline_terminating_if(&mut mir);
+            dcp::opt::insert_loops(&mut mir);
+            dcp::opt::gotos_to_loop_continues(&mut mir);
+            dcp::opt::gotos_to_loop_breaks(&mut mir);
+            dcp::opt::trim_labels(&mut mir);
+            dcp::opt::elim_unreachable(&mut mir);
+            dcp::opt::step_back_breaks(&mut mir);
+            dcp::opt::final_continues(&mut mir);
+            dcp::opt::inf_loops_unreachable(&mut mir);
+            dcp::opt::loop_start_label_swap(&mut mir);
+            dcp::opt::gotos_to_loop_breaks(&mut mir);
+            dcp::opt::terminating_to_break(&mut mir);
+            dcp::opt::trim_labels(&mut mir);
+            dcp::opt::loops_to_whiles(&mut mir);
+            dcp::opt::whiles_to_fors(&mut mir);
+            dcp::opt::flip_negated_ifs(&mut mir);
+        }
 
         // Final prettification
         dcp::opt::collapse_cmp(&mut mir);

@@ -1,6 +1,6 @@
 use std::collections::{HashSet, HashMap};
 
-use crate::{cfg, lir, mir};
+use crate::{cfg, lir, mir, expr};
 
 pub fn gen_local_cfg(blir: &[lir::LirNode]) -> cfg::ControlFlowGraph {
     let mut cfg = cfg::ControlFlowGraph::new();
@@ -22,6 +22,7 @@ pub fn gen_local_cfg(blir: &[lir::LirNode]) -> cfg::ControlFlowGraph {
     }
 
     cfg.set_entry(0);
+    cfg.trim_unreachable();
     cfg
 }
 
@@ -107,58 +108,13 @@ fn discover_nodes(subgraph: &HashSet<cfg::NodeId>, entry: cfg::NodeId, cfg: &cfg
     visited
 }
 
-fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, entry: cfg::NodeId, cfg: &cfg::ControlFlowGraph, dominators: &cfg::Dominators, nodes: &mut Vec<lir::LirNode>, block: &mut Vec<mir::Mir>) {
-    if !subgraph.contains(&entry) {
-        return;
-    }
+fn insert_branches(mut a: usize, mut b: usize, mut cond: expr::Expr, subgraph: HashSet<cfg::NodeId>, fallthrough: Option<cfg::NodeId>, cfg: &cfg::ControlFlowGraph, dominators: &cfg::Dominators, nodes: &mut Vec<lir::LirNode>, block: &mut Vec<mir::Mir>) {
+    let red_disc = discover_nodes(&subgraph, a, cfg, dominators);
+    let blue_disc = discover_nodes(&subgraph, b, cfg, dominators);
+    let purple: HashSet<_> = red_disc.intersection(&blue_disc).copied().collect();
+    let mut red: HashSet<_> = red_disc.difference(&purple).copied().collect();
+    let mut blue: HashSet<_> = blue_disc.difference(&purple).copied().collect();
 
-    block.push(mir::Mir::Label(lir::Label(entry)));
-    block.extend(nodes[entry].code.drain(..).map(lir::Lir::into));
-
-    let mut node = entry;
-    let outgoing = loop {
-        let outgoing = cfg.outgoing_for(node).iter()
-            .filter(|x| subgraph.contains(x) && !dominators.implies_backwards_edge(node, **x))
-            .collect::<Vec<_>>();
-        
-        if outgoing.len() == 0 {
-            return;
-        }
-
-        if outgoing.len() == 2 {
-            break outgoing;
-        }
-
-        assert!(outgoing.len() == 1);
-
-        block.push(mir::Mir::Label(lir::Label(*outgoing[0])));
-        block.extend(nodes[*outgoing[0]].code.drain(..).map(lir::Lir::into));
-
-        node = *outgoing[0];
-    };
-
-    let Some(mir::Mir::Branch { cond: Some(mut cond), target }) = block.pop() else {
-        unreachable!()
-    };
-
-    assert_eq!(outgoing.len(), 2);
-
-    let (mut a, mut b) =
-        if *outgoing[0] == target.0 {
-            (*outgoing[0], *outgoing[1])
-        } else {
-            assert_eq!(*outgoing[1], target.0);
-            (*outgoing[1], *outgoing[0])
-        };
-
-    let red = discover_nodes(&subgraph, a, cfg, dominators);
-    let blue = discover_nodes(&subgraph, b, cfg, dominators);
-
-    let purple = red.intersection(&blue).copied().collect();
-
-    let mut red: HashSet<_> = red.difference(&purple).copied().collect();
-    let mut blue: HashSet<_> = blue.difference(&purple).copied().collect();
-    
     // Move return statements towards the end
     for node in &red {
         if matches!(nodes[*node].code.last(), Some(lir::Lir::Return(_))) {
@@ -169,12 +125,18 @@ fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, entry: cfg::NodeId, 
         }
     }
 
+    let purple_starts = purple.iter()
+        .filter(|x| cfg.incoming_for(**x).intersection(&purple).next().is_none())
+        .copied().collect::<Vec<_>>();
+
+    let new_terminating = purple_starts.first().cloned();
+
     if !red.is_empty() && !blue.is_empty() {
         let mut true_then = Vec::new();
-        append_subgraph_to_block(red, a, cfg, dominators, nodes, &mut true_then);
+        append_subgraph_to_block(red, new_terminating, a, cfg, dominators, nodes, &mut true_then);
 
         let mut false_then = Vec::new();
-        append_subgraph_to_block(blue, b, cfg, dominators, nodes, &mut false_then);
+        append_subgraph_to_block(blue, new_terminating, b, cfg, dominators, nodes, &mut false_then);
 
         block.push(mir::Mir::If {
             cond,
@@ -183,27 +145,96 @@ fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, entry: cfg::NodeId, 
         });
     } else if red.is_empty() {
         let mut false_then = Vec::new();
-        append_subgraph_to_block(blue, b, cfg, dominators, nodes, &mut false_then);
+        append_subgraph_to_block(blue, new_terminating, b, cfg, dominators, nodes, &mut false_then);
 
         block.push(mir::Mir::If {
             cond: cond.neg(),
             true_then: false_then,
             false_then: Vec::new(),
         });
-    }
+    } else if blue.is_empty() {
+        let mut true_then = Vec::new();
+        append_subgraph_to_block(red, new_terminating, a, cfg, dominators, nodes, &mut true_then);
 
-    let purple_starts = purple.iter()
-                            .filter(|x| cfg.incoming_for(**x).intersection(&purple).next().is_none())
-                            .copied().collect::<Vec<_>>();
+        block.push(mir::Mir::If {
+            cond,
+            true_then,
+            false_then: Vec::new(),
+        });
+    }
 
     if !purple_starts.is_empty() {
         assert!(purple_starts.len() == 1);
-        append_subgraph_to_block(purple, purple_starts[0], cfg, dominators, nodes, block);
+        append_subgraph_to_block(purple, fallthrough, purple_starts[0], cfg, dominators, nodes, block);
+    }
+}
+
+fn insert_single_branches(a: usize, cond: expr::Expr, subgraph: HashSet<cfg::NodeId>, fallthrough: Option<cfg::NodeId>, cfg: &cfg::ControlFlowGraph, dominators: &cfg::Dominators, nodes: &mut Vec<lir::LirNode>, block: &mut Vec<mir::Mir>) {
+    let mut body = Vec::new();
+    append_subgraph_to_block(subgraph, fallthrough, a, cfg, dominators, nodes, &mut body);
+
+    block.push(mir::Mir::If {
+        cond,
+        true_then: body,
+        false_then: Vec::new(),
+    });
+}
+
+fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, fallthrough: Option<cfg::NodeId>, entry: cfg::NodeId, cfg: &cfg::ControlFlowGraph, dominators: &cfg::Dominators, nodes: &mut Vec<lir::LirNode>, block: &mut Vec<mir::Mir>) {
+    if !subgraph.contains(&entry) {
+        return;
+    }
+    block.push(mir::Mir::Label(lir::Label(entry)));
+    block.extend(nodes[entry].code.drain(..).map(lir::Lir::into));
+
+    let mut node = entry;
+    loop {
+        let outgoing = cfg.outgoing_for(node).iter()
+            .filter(|x| Some(**x) == fallthrough || (subgraph.contains(x) && !dominators.implies_backwards_edge(node, **x)))
+            .collect::<Vec<_>>();
+        
+        if outgoing.len() == 0 {
+            return;
+        }
+
+        if outgoing.len() == 1 {
+            if Some(*outgoing[0]) == fallthrough {
+                return;
+            }
+
+            block.push(mir::Mir::Label(lir::Label(*outgoing[0])));
+            block.extend(nodes[*outgoing[0]].code.drain(..).map(lir::Lir::into));
+    
+            node = *outgoing[0];
+            continue;
+        }
+        assert_eq!(outgoing.len(), 2);
+
+        let Some(mir::Mir::Branch { cond: Some(cond), target }) = block.pop() else {
+            unreachable!()
+        };
+
+        let (a, b) =
+            if *outgoing[0] == target.0 {
+                (*outgoing[0], *outgoing[1])
+            } else {
+                assert_eq!(*outgoing[1], target.0);
+                (*outgoing[1], *outgoing[0])
+            };
+    
+
+        if Some(a) == fallthrough {
+            return insert_single_branches(b, cond.neg(), subgraph, fallthrough, cfg, dominators, nodes, block);
+        } else if Some(b) == fallthrough {
+            return insert_single_branches(a, cond, subgraph, fallthrough, cfg, dominators, nodes, block);
+        } else {
+            return insert_branches(a, b, cond, subgraph, fallthrough, cfg, dominators, nodes, block);
+        }
     }
 }
 
 pub fn reorder_code(graph: &cfg::ControlFlowGraph, dominators: &cfg::Dominators, mut nodes: Vec<lir::LirNode>) -> Vec<mir::Mir> {
     let mut code = Vec::new();
-    append_subgraph_to_block(graph.nodes(), graph.get_entry().expect("No entry"), &graph, &dominators, &mut nodes, &mut code);
+    append_subgraph_to_block(graph.nodes(), None, graph.get_entry().expect("No entry"), &graph, &dominators, &mut nodes, &mut code);
     code
 }

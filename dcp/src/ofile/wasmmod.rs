@@ -9,7 +9,8 @@ pub enum WasmDecodeError {
 
 pub struct Module<'a> {
     functions: Vec<wasmparser::FunctionBody<'a>>,
-    types: Vec<wasmparser::FuncType>
+    types: Vec<wasmparser::FuncType>,
+    // import_count: usize
 }
 
 impl<'a> Module<'a> {
@@ -28,6 +29,7 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
     }
 
     let mut res = Module { functions: Vec::new(), types: Vec::new() };
+    let mut types = Vec::new();
 
     for payload in wasmparser::Parser::new(0).parse_all(&buf) {
         match payload {
@@ -35,7 +37,7 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
             Ok(Payload::TypeSection(reader)) => {
                 for ty in reader {
                     match ty {
-                        Ok(wasmparser::Type::Func(func)) => res.types.push(func),
+                        Ok(wasmparser::Type::Func(func)) => types.push(func),
                         Ok(_) => {},
                         Err(err) => {
                             eprintln!("wasmparser err: {err}");
@@ -44,6 +46,31 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
                     }
                 }
             },
+            Ok(Payload::ImportSection(reader)) => {
+                for import in reader {
+                    match import {
+                        Ok(x) => match x.ty {
+                            wasmparser::TypeRef::Func(func) => res.types.push(types[func as usize].clone()),
+                            _ => {}
+                        },
+                        Err(err) => {
+                            eprintln!("wasmparser err: {err}");
+                            return Err(WasmDecodeError::Invalid)
+                        }
+                    }
+                }
+            }
+            Ok(Payload::FunctionSection(reader)) => {
+                for ty in reader {
+                    match ty {
+                        Ok(x) => res.types.push(types[x as usize].clone()),
+                        Err(err) => {
+                            eprintln!("wasmparser err: {err}");
+                            return Err(WasmDecodeError::Invalid)
+                        }
+                    }
+                }
+            }
             Ok(_) => (),
             Err(err) => {
                 eprintln!("wasmparser err: {err}");
@@ -51,6 +78,8 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
             }
         }
     }
+
+    // assert_eq!(res.types.len(), res.functions.len());
 
     Ok(res)
 }

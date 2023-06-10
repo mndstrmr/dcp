@@ -95,6 +95,7 @@ pub fn mem_to_name(nodes: &mut Vec<lir::LirNode>, abi: &Abi) -> mir::MirStackFra
         for stmt in &mut node.code {
             match stmt {
                 lir::Lir::Return(expr) => append_expr_to_frame(expr, base_reg, &mut stack_frame, &mut name_gen),
+                lir::Lir::Do(expr) => append_expr_to_frame(expr, base_reg, &mut stack_frame, &mut name_gen),
                 lir::Lir::Assign { src, dst } => {
                     append_expr_to_frame(src, base_reg, &mut stack_frame, &mut name_gen);
                     append_expr_to_frame(dst, base_reg, &mut stack_frame, &mut name_gen);

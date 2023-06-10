@@ -19,6 +19,7 @@ pub enum Lir {
         src: expr::Expr,
         dst: expr::Expr
     },
+    Do(expr::Expr),
     Label(Label),
     Return(expr::Expr)
 }
@@ -30,6 +31,7 @@ impl Lir {
             Lir::Assign { src, dst } => src.has_side_effects() || dst.has_side_effects(),
             Lir::Label(_) => false,
             Lir::Return(ret) => ret.has_side_effects(),
+            Lir::Do(x) => x.has_side_effects(),
             Lir::Branch { cond: Some(cond), .. } => cond.has_side_effects(),
             Lir::Branch { .. } => false,
         }
@@ -45,6 +47,7 @@ impl Lir {
     pub fn count_reads(&self, name: &str) -> usize {
         match self {
             Lir::Return(expr) => expr.count_reads(name),
+            Lir::Do(expr) => expr.count_reads(name),
             Lir::Assign { dst: expr::Expr::Name(_), src } => src.count_reads(name),
             Lir::Assign { src, dst } => src.count_reads(name) + dst.count_reads(name),
             Lir::Branch { cond: Some(cond), .. } => cond.count_reads(name),
@@ -56,6 +59,7 @@ impl Lir {
     pub fn replace_name(&mut self, name: &str, expr: &expr::Expr) {
         match self {
             Lir::Return(ret) => ret.replace_name(name, expr),
+            Lir::Do(ret) => ret.replace_name(name, expr),
             Lir::Assign { dst: expr::Expr::Name(_), src } => src.replace_name(name, expr),
             Lir::Assign { src, dst } => {
                 src.replace_name(name, expr);
@@ -74,6 +78,7 @@ impl std::fmt::Display for Lir {
             Lir::Branch { cond: Some(cond), target } => write!(f, "ifgoto {cond} {target}"),
             Lir::Branch { cond: None, target } => write!(f, "goto {target}"),
             Lir::Return(expr) => write!(f, "return {expr}"),
+            Lir::Do(expr) => write!(f, "{expr}"),
             Lir::Label(label) => write!(f, "{label}:"),
             Lir::Assign { src, dst } => write!(f, "{dst} = {src}")
         }
