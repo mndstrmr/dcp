@@ -31,13 +31,13 @@ fn decode_arm64(functions: Vec<(Option<String>, &[u8], u64)>) -> Result<(Abi, Ve
 
     Ok((
         armv8::abi(),
-        functions.iter().map(|(_name, code, addr)| {
-            let lir = armv8::to_lir(code, *addr, &function_ids).expect("Could not convert to LIR");
+        functions.into_iter().map(|(name, code, addr)| {
+            let lir = armv8::to_lir(code, addr, &function_ids).expect("Could not convert to LIR");
 
             let blir = lir_to_lirnodes(lir);
             let cfg = gen_local_cfg(&blir);
 
-            GlobalCfgNode::new(cfg, blir)
+            GlobalCfgNode::new(cfg, blir, name)
         }).collect()
     ))
 }
@@ -58,24 +58,22 @@ fn decode_wasm(module: wasmmod::Module) -> Result<(Abi, Vec<GlobalCfgNode>), Dec
     Ok((
         wasm::abi(),
         module.functions().iter().enumerate().filter_map(|(i, func)| {
-            if i < 10 || i > 15 {
+            if i > 12 {
                 return None;
             }
 
-            let lir = match wasm::to_lir(func, module.types()) {
+            let lir = match wasm::to_lir(&func.body, module.types()) {
                 Ok(lir) => lir,
                 Err(err) => {
                     eprintln!("Could not translate wasm function: {err}");
                     return None
                 }
             };
-            // println!("func {i}:");
-            // println!("{}", lir);
 
             let blir = lir_to_lirnodes(lir);
             let cfg = gen_local_cfg(&blir);
 
-            Some(GlobalCfgNode::new(cfg, blir))
+            Some(GlobalCfgNode::new(cfg, blir, func.name.clone()))
         }).collect()
     ))
 }

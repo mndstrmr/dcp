@@ -42,7 +42,7 @@ impl UnaryOp {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BinaryOp {
     Eq, Ne, Lt, Le, Gt, Ge,
     Add, Sub, Mul, Div,
@@ -120,7 +120,14 @@ impl Expr {
 
         match self {
             Expr::Name(name) => write!(f, "{}", name),
-            Expr::Num(num) => write!(f, "{}", num),
+            Expr::Num(x) => {
+                // Power of two, or one less than power of 2
+                if *x >= 4096 || (*x > 32 && ((x & (x - 1)) == 0 || ((x + 1) & x) == 0)) {
+                    write!(f, "0x{:x}", x)
+                } else {
+                    write!(f, "{}", x)
+                }
+            },
             Expr::Func(idx) => write!(f, "fn{}", idx.0),
             Expr::Bool(b) => write!(f, "{}", b),
 

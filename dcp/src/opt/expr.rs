@@ -1,4 +1,4 @@
-use crate::{expr, mir::{MirVisitorMut, self}, lir};
+use crate::{expr::{self, UnaryOp}, mir::{MirVisitorMut, self}, lir};
 
 fn collapse_cmp_in(sexpr: &mut expr::Expr) {
     match sexpr {
@@ -41,57 +41,103 @@ pub fn collapse_cmp(code: &mut mir::MirFunc) {
 }
 
 fn reduce_binops_in(sexpr: &mut expr::Expr) {
+    use expr::{Expr::*, BinaryOp::*};
     match sexpr {
         expr::Expr::Name(_) | expr::Expr::Num(_) | expr::Expr::Bool(_) | expr::Expr::Func(_) => {},
-        expr::Expr::Unary { expr, .. } => reduce_binops_in(expr.as_mut()),
+        expr::Expr::Unary { expr, op: UnaryOp::Not } => {
+            reduce_binops_in(expr.as_mut());
+            *sexpr = expr.neg();
+        }
+        expr::Expr::Unary { expr, .. } => {
+            reduce_binops_in(expr.as_mut());
+        }
         expr::Expr::Binary { lhs, rhs, op } => {
             reduce_binops_in(lhs.as_mut());
             reduce_binops_in(rhs.as_mut());
 
-            if let expr::Expr::Num(n) = rhs.as_ref() &&
-                let expr::Expr::Binary { op: op2, lhs: lhs2, rhs: rhs2 } = lhs.as_mut() &&
-                let expr::Expr::Num(n2) = rhs2.as_ref() {
-                match (op, op2) {
-                    (expr::BinaryOp::Add, expr::BinaryOp::Add) =>
-                        *sexpr = expr::Expr::Binary {
-                            op: expr::BinaryOp::Add,
-                            lhs: Box::new(lhs2.take()),
-                            rhs: Box::new(expr::Expr::Num(n + n2))
-                        },
-                    (expr::BinaryOp::Add, expr::BinaryOp::Sub) =>
-                        *sexpr = expr::Expr::Binary {
-                            op: expr::BinaryOp::Sub,
-                            lhs: Box::new(lhs2.take()),
-                            rhs: Box::new(expr::Expr::Num(n2 - n))
-                        },
-                    (expr::BinaryOp::And, op2) if op2.is_logical() && *n != 0 =>
-                        *sexpr = lhs.take(),
-                    _ => {}
-                }
-        } else if
-                let expr::Expr::Num(n1) = rhs.as_ref() &&
-                let expr::Expr::Num(n2) = lhs.as_ref() {
-            match op {
-                expr::BinaryOp::Add => *sexpr = expr::Expr::Num(n1 + n2),
-                _ => {}
-            }
-        } else if let expr::Expr::Num(n) = rhs.as_ref() &&
-                *n < 0 && *op == expr::BinaryOp::Sub {
-                *rhs = Box::new(expr::Expr::Num(-n));
-                *op = expr::BinaryOp::Add;
-            } else if let expr::Expr::Num(n) = rhs.as_ref() && *n == 0 {
-                match op {
-                    expr::BinaryOp::Add => *sexpr = lhs.take(),
-                    expr::BinaryOp::Sub => *sexpr = lhs.take(),
-                    expr::BinaryOp::Mul => *sexpr = expr::Expr::Num(0),
-                    _ => {}
+            macro_rules! x {
+                ($lhs:pat, $op:pat, $rhs:pat $(if $g:expr)* => $x:expr) => {
+                    #[allow(irrefutable_let_patterns)]
+                    if
+                        let $lhs = lhs.as_mut() &&
+                        let $op = op &&
+                        let $rhs = rhs.as_mut()
+                        $(
+                            && $g
+                        )*
+                    { $x; return; }
                 };
-            } else if let expr::Expr::Num(1) = rhs.as_ref() &&
-                    let expr::BinaryOp::And = op &&
-                    let expr::Expr::Binary { op: op2, .. } = lhs.as_ref() &&
-                    op2.is_logical() {
-                *sexpr = lhs.take();
+
+                (!($lhs2:pat, $op2:pat, $rhs2:pat), $op:pat, $rhs:pat $(if $g:expr)* => $x:expr) => {
+                    if
+                        let Binary { op: op2, lhs: lhs2, rhs: rhs2 } = lhs.as_mut() &&
+                        let $lhs2 = lhs2.as_mut() &&
+                        let $op2 = op2 &&
+                        let $rhs2 = rhs2.as_mut() &&
+                        let $op = op &&
+                        let $rhs = rhs.as_mut()
+                        $(
+                            && $g
+                        )*
+                    { $x; return; }
+                };
+
+                ($lhs:pat, $op:pat, ! ($lhs2:pat, $op2:pat, $rhs2:pat) $(if $g:expr)* => $x:expr) => {
+                    #[allow(irrefutable_let_patterns)]
+                    if
+                        let $lhs = lhs.as_mut() &&
+                        let $op = op &&
+                        let Binary { op: op2, lhs: lhs2, rhs: rhs2 } = rhs.as_mut() &&
+                        let $lhs2 = lhs2.as_mut() &&
+                        let $op2 = op2 &&
+                        let $rhs2 = rhs2.as_mut()
+                        $(
+                            && $g
+                        )*
+                    { $x; return; }
+                };
             }
+
+            x!(Num(n1), Add, Num(n2) => *sexpr = Num(*n1 + *n2));
+            x!(lhs, Add, Num(0) => *sexpr = lhs.take());
+            x!(lhs, Sub, Num(0) => *sexpr = lhs.take());
+            x!(lhs, Mul, Num(1) => *sexpr = lhs.take());
+            x!(_, Mul, Num(0) => *sexpr = Num(0));
+            x!(!(lhs2, Add, Num(n)), Add, Num(n2) => *sexpr = expr::Expr::Binary {
+                op: expr::BinaryOp::Add,
+                lhs: Box::new(lhs2.take()),
+                rhs: Box::new(expr::Expr::Num(*n + *n2))
+            });
+            x!(!(lhs2, Add, Num(n)), Sub, Num(n2) => *sexpr = expr::Expr::Binary {
+                op: expr::BinaryOp::Add,
+                lhs: Box::new(lhs2.take()),
+                rhs: Box::new(expr::Expr::Num(*n - *n2))
+            });
+            x!(_, Sub, Num(n2) if *n2 < 0 => {
+                *rhs = Box::new(Num(-*n2));
+                *op = Add;
+            });
+            x!(Num(1), And, ! (lhs, op, rhs) if op.is_logical() => {
+                *sexpr = expr::Expr::Binary {
+                    op: *op,
+                    lhs: Box::new(lhs.take()),
+                    rhs: Box::new(rhs.take())
+                }
+            });
+            x!(! (lhs, op, rhs), And, Num(1) if op.is_logical() => {
+                *sexpr = expr::Expr::Binary {
+                    op: *op,
+                    lhs: Box::new(lhs.take()),
+                    rhs: Box::new(rhs.take())
+                }
+            });
+            x!(Unary { expr: lhs2, op: UnaryOp::Not }, Or, Unary { expr: rhs2, op: UnaryOp::Not } => {
+                *sexpr = expr::Expr::Binary {
+                    op: And,
+                    lhs: Box::new(lhs2.take()),
+                    rhs: Box::new(rhs2.take())
+                }
+            });
         }
         expr::Expr::Deref { ptr, .. } => reduce_binops_in(ptr.as_mut()),
         expr::Expr::Ref(value) => reduce_binops_in(value.as_mut()),

@@ -252,7 +252,9 @@ fn gen_insn<'a>(
             });
             Ok(())
         }
-        Operator::I32Store { memarg: wasmparser::MemArg { offset, .. } } | Operator::I32Store8 { memarg: wasmparser::MemArg { offset, .. } } => {
+        Operator::I32Store { memarg: wasmparser::MemArg { offset, .. } } |
+        Operator::I32Store8 { memarg: wasmparser::MemArg { offset, .. } } |
+        Operator::I32Store16 { memarg: wasmparser::MemArg { offset, .. } } => {
             let src = stack.pop();
             let addr = stack.pop();
             block.push(lir::Lir::Assign {
@@ -265,6 +267,7 @@ fn gen_insn<'a>(
                     size: match insn {
                         Operator::I32Store { .. } => ty::Size::Size32,
                         Operator::I32Store8 { .. } => ty::Size::Size8,
+                        Operator::I32Store16 { .. } => ty::Size::Size16,
                         _ => unreachable!()
                     }
                 },
@@ -310,7 +313,9 @@ fn gen_insn<'a>(
             block.push(lir::Lir::Label(start));
             Ok(())
         }
-        Operator::I32LtS | Operator::I32LeS | Operator::I32GtS | Operator::I32GeS => {
+        Operator::I32LtS | Operator::I32LeS |
+        Operator::I32GtS | Operator::I32GeS |
+        Operator::I32Eq | Operator::I32Ne => {
             let src2 = stack.pop();
             let src1 = stack.pop();
             let dst = stack.push();
@@ -321,6 +326,8 @@ fn gen_insn<'a>(
                         Operator::I32LeS => expr::BinaryOp::Le,
                         Operator::I32GtS => expr::BinaryOp::Gt,
                         Operator::I32GeS => expr::BinaryOp::Ge,
+                        Operator::I32Eq => expr::BinaryOp::Eq,
+                        Operator::I32Ne => expr::BinaryOp::Ne,
                         _ => unreachable!()
                     },
                     lhs: src1.bexpr(),
@@ -392,8 +399,16 @@ fn gen_insn<'a>(
             Ok(())
         }
         Operator::Drop => {
-            stack.pop();
-            Ok(())
+            let res = stack.pop();
+            // Small optimisation: if we drop something immediately after making it, get rid of the assignment
+            if let Some(lir::Lir::Assign { dst: expr::Expr::Name(nm), src }) = block.last() && nm == &res.name() {
+                let new = lir::Lir::Do(src.take());
+                block.pop();
+                block.push(new);
+                Ok(())
+            } else {
+                Ok(())
+            }
         }
         Operator::Unreachable => {
             // FIXME: Add something here

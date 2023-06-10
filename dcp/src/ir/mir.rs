@@ -90,14 +90,14 @@ impl MirStackFrame {
 }
 
 pub struct MirFunc {
-    pub args: Vec<&'static str>,
-    pub results: Vec<&'static str>,
+    pub args: Vec<String>,
+    pub results: Vec<String>,
     pub code: Vec<Mir>,
     pub stack_frame: MirStackFrame
 }
 
 impl MirFunc {
-    pub fn new(args: Vec<&'static str>, results: Vec<&'static str>, code: Vec<Mir>, stack_frame: MirStackFrame) -> MirFunc {
+    pub fn new(args: Vec<String>, results: Vec<String>, code: Vec<Mir>, stack_frame: MirStackFrame) -> MirFunc {
         MirFunc {
             args, results,
             code,
@@ -108,12 +108,22 @@ impl MirFunc {
 
 impl std::fmt::Display for MirFunc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "func {{")?;
-        write!(f, "{}frame {} {{", crate::NEWLINE_INDENT, self.stack_frame.size)?;
-        for local in &self.stack_frame.locals {
-            write!(f, "\n{}{}var {}: {} bytes @ base - {}", crate::INDENT, crate::INDENT, local.name, local.size, local.offset)?;
+        write!(f, "func (")?;
+        for (a, arg) in self.args.iter().enumerate() {
+            if a != 0 {
+                write!(f, ", {arg}")?;
+            } else {
+                write!(f, "{arg}")?;
+            }
         }
-        write!(f, "{}}}", crate::NEWLINE_INDENT)?;
+        write!(f, ") {{")?;
+        if self.stack_frame.size > 0 {
+            write!(f, "{}frame {} {{", crate::NEWLINE_INDENT, self.stack_frame.size)?;
+            for local in &self.stack_frame.locals {
+                write!(f, "\n{}{}var {}: {} bytes @ base - {}", crate::INDENT, crate::INDENT, local.name, local.size, local.offset)?;
+            }
+            write!(f, "{}}}", crate::NEWLINE_INDENT)?;
+        }
 
         for stmt in &self.code {
             f.write_str(&format!("\n{}", stmt).replace('\n', crate::NEWLINE_INDENT))?;

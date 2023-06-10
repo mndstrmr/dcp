@@ -130,6 +130,14 @@ impl LirFuncBuilder {
             code: self.code,
         }
     }
+
+    pub fn last(&mut self) -> Option<&mut Lir> {
+        self.code.last_mut()
+    }
+
+    pub fn pop(&mut self) -> Option<Lir> {
+        self.code.pop()
+    }
 }
 
 #[derive(Debug)]

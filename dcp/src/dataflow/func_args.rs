@@ -5,26 +5,29 @@ use crate::{cfg, lir, expr, dataflow::Abi};
 use super::ReadWrite;
 
 pub struct GlobalSig {
+    pub name: Option<String>,
     pub args: Vec<&'static str>
 }
 
 pub struct GlobalCfgNode {
     pub local_cfg: cfg::ControlFlowGraph,
     pub local_lirnodes: Vec<lir::LirNode>,
-    pub args: Vec<&'static str>
+    pub args: Vec<&'static str>,
+    pub name: Option<String>
 }
 
 impl GlobalCfgNode {
-    pub fn new(local_cfg: cfg::ControlFlowGraph, local_lirnodes: Vec<lir::LirNode>) -> GlobalCfgNode {
+    pub fn new(local_cfg: cfg::ControlFlowGraph, local_lirnodes: Vec<lir::LirNode>, name: Option<String>) -> GlobalCfgNode {
         GlobalCfgNode {
             local_cfg,
             local_lirnodes,
-            args: Vec::new()
+            args: Vec::new(),
+            name
         }
     }
 
     pub fn split(self) -> ((cfg::ControlFlowGraph, Vec<lir::LirNode>), GlobalSig) {
-        ((self.local_cfg, self.local_lirnodes), GlobalSig { args: self.args })
+        ((self.local_cfg, self.local_lirnodes), GlobalSig { args: self.args, name: self.name })
     }
 }
 
