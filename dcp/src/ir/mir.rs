@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{expr, lir};
+use crate::{expr, lir, pretty};
 
 #[derive(Clone, Debug)]
 pub enum Mir {
@@ -90,34 +90,43 @@ impl MirStackFrame {
 }
 
 pub struct MirFunc {
-    pub args: Vec<String>,
     pub results: Vec<String>,
     pub code: Vec<Mir>,
-    pub stack_frame: MirStackFrame
+    pub stack_frame: MirStackFrame,
+    pub funcid: expr::FuncId
 }
 
 impl MirFunc {
-    pub fn new(args: Vec<String>, results: Vec<String>, code: Vec<Mir>, stack_frame: MirStackFrame) -> MirFunc {
+    pub fn new(funcid: expr::FuncId, results: Vec<String>, code: Vec<Mir>, stack_frame: MirStackFrame) -> MirFunc {
         MirFunc {
-            args, results,
+            funcid,
+            results,
             code,
             stack_frame
         }
     }
-}
 
-impl std::fmt::Display for MirFunc {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "func (")?;
-        for (a, arg) in self.args.iter().enumerate() {
-            if a != 0 {
-                write!(f, ", {arg}")?;
+    pub fn fmt_named_with_context(&self, f: &mut std::fmt::Formatter, ctx: &mut pretty::PrettyPrintContext) -> std::fmt::Result {
+        if let Some(func) = ctx.func(self.funcid) {
+            if let Some(name) = &func.name {
+                write!(f, "func {}(", name)?;
             } else {
-                write!(f, "{arg}")?;
+                write!(f, "func fn{}(", self.funcid.0)?;
             }
-        }
+            
+            for (a, arg) in func.args.iter().enumerate() {
+                if a != 0 {
+                    write!(f, ", {arg}")?;
+                } else {
+                    write!(f, "{arg}")?;
+                }
+            }
+        } else {
+            write!(f, "func fn{}(", self.funcid.0)?;
+        }        
+        
         write!(f, ") {{")?;
-        if self.stack_frame.size > 0 {
+        if self.stack_frame.locals.len() > 0 {
             write!(f, "{}frame {} {{", crate::NEWLINE_INDENT, self.stack_frame.size)?;
             for local in &self.stack_frame.locals {
                 write!(f, "\n{}{}var {}: {} bytes @ base - {}", crate::INDENT, crate::INDENT, local.name, local.size, local.offset)?;
@@ -125,10 +134,15 @@ impl std::fmt::Display for MirFunc {
             write!(f, "{}}}", crate::NEWLINE_INDENT)?;
         }
 
+        ctx.push_indent();
         for stmt in &self.code {
-            f.write_str(&format!("\n{}", stmt).replace('\n', crate::NEWLINE_INDENT))?;
+            ctx.newline(f)?;
+            stmt.fmt_with_context(f, ctx)?;
         }
-        writeln!(f, "\n}}")?;
+        ctx.pop_indent();
+        
+        ctx.newline(f)?;
+        writeln!(f, "}}")?;
 
         Ok(())
     }
@@ -142,6 +156,108 @@ impl From<lir::Lir> for Mir {
             lir::Lir::Return(expr) => Mir::Return(expr),
             lir::Lir::Do(expr) => Mir::Do(expr),
             lir::Lir::Label(label) => Mir::Label(label)
+        }
+    }
+}
+
+impl Mir {
+    pub fn fmt_with_context(&self, f: &mut std::fmt::Formatter, ctx: &mut pretty::PrettyPrintContext) -> std::fmt::Result {
+        match self {
+            Mir::Assign { src, dst } => {
+                dst.fmt_with_context(f, ctx)?;
+                write!(f, " = ")?;
+                src.fmt_with_context(f, ctx)
+            }
+            Mir::Return(expr) => {
+                write!(f, "return ")?;
+                expr.fmt_with_context(f, ctx)
+            },
+            Mir::Do(expr) => expr.fmt_with_context(f, ctx),
+            Mir::Branch { cond: Some(cond), target } => {
+                write!(f, "ifgoto ")?;
+                cond.fmt_with_context(f, ctx)?;
+                write!(f, " #{target}")
+            },
+            Mir::Branch { cond: None, target } => write!(f, "goto #{target}"),
+            Mir::If { cond, true_then, false_then } => {
+                write!(f, "if ")?;
+                cond.fmt_with_context(f, ctx)?;
+                write!(f, " {{")?;
+                ctx.push_indent();
+                for stmt in true_then {
+                    // f.write_str(&format!("\n{}", stmt).replace('\n', crate::NEWLINE_INDENT))?;
+                    ctx.newline(f)?;
+                    stmt.fmt_with_context(f, ctx)?;
+                }
+                ctx.pop_indent();
+                ctx.newline(f)?;
+                write!(f, "}}")?;
+
+                if !false_then.is_empty() {
+                    write!(f, " else {{")?;
+                    ctx.push_indent();
+                    for stmt in false_then {
+                        ctx.newline(f)?;
+                        stmt.fmt_with_context(f, ctx)?;
+                    }
+                    ctx.pop_indent();
+                    ctx.newline(f)?;
+                    write!(f, "}}")?;
+                }
+
+                Ok(())
+            }
+            Mir::For { guard, inc, code } => {
+                // FIXME: Multistatement increment
+                write!(f, "for ")?;
+                guard.fmt_with_context(f, ctx)?;
+                write!(f, "; ")?;
+                for (s, stmt) in inc.iter().enumerate() {
+                    if s != 0 {
+                        write!(f, ";")?;
+                    }
+                    stmt.fmt_with_context(f, ctx)?;
+                }
+                write!(f, " {{")?;
+                ctx.push_indent();
+                for stmt in code {
+                    ctx.newline(f)?;
+                    stmt.fmt_with_context(f, ctx)?;
+                }
+                ctx.pop_indent();
+                ctx.newline(f)?;
+                write!(f, "}}")?;
+
+                Ok(())
+            }
+            Mir::While { guard, code } => {
+                // FIXME: Multistatement increment
+                write!(f, "while ")?;
+                guard.fmt_with_context(f, ctx)?;
+                write!(f, " {{")?;
+                ctx.push_indent();
+                for stmt in code {
+                    ctx.newline(f)?;
+                    stmt.fmt_with_context(f, ctx)?;
+                }
+                ctx.pop_indent();
+                ctx.newline(f)?;
+                write!(f, "}}")
+            }
+            Mir::Loop { code } => {
+                write!(f, "loop {{")?;
+                ctx.push_indent();
+                for stmt in code {
+                    ctx.newline(f)?;
+                    stmt.fmt_with_context(f, ctx)?;
+                }
+                ctx.pop_indent();
+                ctx.newline(f)?;
+                write!(f, "}}")
+            }
+            Mir::Break => write!(f, "break"),
+            Mir::Continue => write!(f, "continue"),
+            Mir::Label(label) => write!(f, "{label}:")
         }
     }
 }

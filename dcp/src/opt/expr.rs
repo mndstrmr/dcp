@@ -113,6 +113,11 @@ fn reduce_binops_in(sexpr: &mut expr::Expr) {
                 lhs: Box::new(lhs2.take()),
                 rhs: Box::new(expr::Expr::Num(*n - *n2))
             });
+            x!(!(lhs2, Sub, Num(n)), Add, Num(n2) => *sexpr = expr::Expr::Binary {
+                op: expr::BinaryOp::Sub,
+                lhs: Box::new(lhs2.take()),
+                rhs: Box::new(expr::Expr::Num(*n - *n2))
+            });
             x!(_, Sub, Num(n2) if *n2 < 0 => {
                 *rhs = Box::new(Num(-*n2));
                 *op = Add;

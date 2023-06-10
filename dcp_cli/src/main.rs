@@ -1,6 +1,7 @@
 use std::{fs::File, io::Read};
 
 use clap::Parser;
+use dcp::pretty;
 
 #[derive(clap::Parser, Debug)]
 struct Args {
@@ -28,7 +29,7 @@ fn main() {
     }
 
     // Load lir (direct translation from binary)
-    let (abi, mut global_nodes) = match dcp::load_lir_from_binary(&buf) {
+    let (mut module, mut defs) = match dcp::load_lir_from_binary(&buf) {
         Ok(x) => x,
         Err(err) => {
             eprintln!("Could not decode {}: {}", args.path, err);
@@ -36,39 +37,38 @@ fn main() {
         }
     };
 
+    let mut mir_func_defs = Vec::new();
+
     // Add signatures to functions
-    dcp::dataflow::func_args(&mut global_nodes, &abi);
-    let (nodes, sigs): (Vec<_>, Vec<_>) = global_nodes.into_iter().map(dcp::dataflow::GlobalCfgNode::split).unzip();
+    dcp::dataflow::func_args(&mut module, &defs);
+    dcp::dataflow::insert_func_args(&module, &mut defs);
 
-    for (i, (mut cfg, mut blir)) in nodes.into_iter().enumerate() {
+    for mut function in defs.into_iter() {
         // Add registers to function calls if necessary
-        dcp::dataflow::compress_cfg(&mut cfg, &mut blir);
-
-        // Add registers to function calls if necessary
-        dcp::dataflow::insert_func_args(&sigs, &mut blir);
+        dcp::dataflow::compress_cfg(&mut function.local_cfg, &mut function.local_lirnodes);
         
         // Eliminate frame pointers
         // FIXME: fp/sp should not be eliminated entirely, as they are needed upon return
-        for eliminate in &abi.eliminate {
-            for loc in dcp::dataflow::ssaify(&cfg, &mut blir, eliminate, &abi) {
-                dcp::dataflow::elim_ssa_loc(&mut blir, loc);
+        for eliminate in &module.abi.eliminate {
+            for loc in dcp::dataflow::ssaify(&function.local_cfg, &mut function.local_lirnodes, eliminate, &module.abi) {
+                dcp::dataflow::elim_ssa_loc(&mut function.local_lirnodes, loc);
             }
         }
         
         // Clean up code
         // FIXME: This should all probably be in a loop of some sort
-        dcp::dataflow::elim_dead_writes(&cfg, &mut blir, &abi);
-        dcp::dataflow::inline_single_use_names(&cfg, &mut blir, &abi);
-        dcp::opt::reduce_binops_lir(&mut blir);
+        dcp::dataflow::elim_dead_writes(&function.local_cfg, &mut function.local_lirnodes, &module.abi);
+        dcp::dataflow::inline_single_use_names(&function.local_cfg, &mut function.local_lirnodes, &module.abi);
+        dcp::opt::reduce_binops_lir(&mut function.local_lirnodes);
 
         // Mem to reg, then cleanup again
-        let stack_frame = dcp::dataflow::mem_to_name(&mut blir, &abi);
-        dcp::dataflow::elim_dead_writes(&cfg, &mut blir, &abi);
-        dcp::dataflow::inline_single_use_names(&cfg, &mut blir, &abi);
+        let stack_frame = dcp::dataflow::mem_to_name(&mut function.local_lirnodes, &module.abi);
+        dcp::dataflow::elim_dead_writes(&function.local_cfg, &mut function.local_lirnodes, &module.abi);
+        dcp::dataflow::inline_single_use_names(&function.local_cfg, &mut function.local_lirnodes, &module.abi);
 
         // Place code down, and get MIR
-        let code = dcp::reorder_code(&cfg, &cfg.dominators(), blir);
-        let mut mir = dcp::mir::MirFunc::new(vec![], vec![], code, stack_frame);
+        let code = dcp::reorder_code(&function.local_cfg, &function.local_cfg.dominators(), function.local_lirnodes);
+        let mut mir = dcp::mir::MirFunc::new(function.funcid, vec![], code, stack_frame);
         
         // Remove redundant jumps (FIXME: Are both really necessary?)
         dcp::opt::compress_control_flow(&mut mir);
@@ -99,6 +99,11 @@ fn main() {
         dcp::opt::collapse_cmp(&mut mir);
         dcp::opt::reduce_binops(&mut mir);
 
-        println!("{:?}: {}", sigs[i].name, mir);
+        mir_func_defs.push(mir);
+    }
+
+    for def in mir_func_defs {
+        let printer = pretty::PrettyPrinter::new(&def, &module);
+        println!("{}", printer);
     }
 }

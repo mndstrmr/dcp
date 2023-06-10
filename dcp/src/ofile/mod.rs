@@ -1,9 +1,76 @@
 use std::collections::HashMap;
 
-use crate::{dataflow::Abi, dataflow::GlobalCfgNode, expr, armv8, lir_to_lirnodes, gen_local_cfg, wasm};
+use crate::{dataflow::Abi, expr, armv8, lir_to_lirnodes, gen_local_cfg, wasm, lir, cfg::ControlFlowGraph};
 
 pub mod macho;
 pub mod wasmmod;
+
+pub struct FunctionDecl {
+    pub name: Option<String>,
+    pub args: Vec<&'static str>,
+    pub funcid: expr::FuncId
+}
+
+pub struct FunctionDef {
+    pub funcid: expr::FuncId,
+    pub local_cfg: ControlFlowGraph,
+    pub local_lirnodes: Vec<lir::LirNode>,
+}
+
+pub struct Module {
+    pub abi: Abi,
+    pub functions: Vec<FunctionDecl>,
+}
+
+pub struct FunctionDefSet(Vec<FunctionDef>);
+
+impl FunctionDefSet {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn find(&self, funcid: expr::FuncId) -> Option<&FunctionDef> {
+        for function in &self.0 {
+            if function.funcid == funcid {
+                return Some(function);
+            }
+        }
+        None
+    }
+
+    pub fn find_mut(&mut self, funcid: expr::FuncId) -> Option<&mut FunctionDef> {
+        for function in &mut self.0 {
+            if function.funcid == funcid {
+                return Some(function);
+            }
+        }
+        None
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item=FunctionDef> {
+        self.0.into_iter()
+    }
+}
+
+impl Module {
+    pub fn find_decl(&self, funcid: expr::FuncId) -> Option<&FunctionDecl> {
+        for function in &self.functions {
+            if function.funcid == funcid {
+                return Some(function);
+            }
+        }
+        None
+    }
+
+    pub fn find_decl_mut(&mut self, funcid: expr::FuncId) -> Option<&mut FunctionDecl> {
+        for function in &mut self.functions {
+            if function.funcid == funcid {
+                return Some(function);
+            }
+        }
+        None
+    }
+}
 
 pub enum DecodeError {
     UnknownFormat,
@@ -23,26 +90,39 @@ impl std::fmt::Display for DecodeError {
     }
 }
 
-fn decode_arm64(functions: Vec<(Option<String>, &[u8], u64)>) -> Result<(Abi, Vec<GlobalCfgNode>), DecodeError> {
+fn decode_arm64(mut functions: Vec<(Option<String>, &[u8], u64)>) -> Result<(Module, FunctionDefSet), DecodeError> {
+    let mut module = Module {
+        abi: armv8::abi(),
+        functions: vec![],
+    };
+    let mut defs = Vec::new();
+
     let mut function_ids = HashMap::new();
-    for (i, (_, _, addr)) in functions.iter().enumerate() {
+    for (i, (name, _, addr)) in functions.iter_mut().enumerate() {
         function_ids.insert(*addr, expr::FuncId(i));
+
+        module.functions.push(FunctionDecl {
+            args: vec![],
+            funcid: expr::FuncId(i),
+            name: name.take()
+        });
     }
 
-    Ok((
-        armv8::abi(),
-        functions.into_iter().map(|(name, code, addr)| {
-            let lir = armv8::to_lir(code, addr, &function_ids).expect("Could not convert to LIR");
+    for (i, (_, code, addr)) in functions.into_iter().enumerate() {
+        let lir = armv8::to_lir(code, addr, &function_ids).expect("Could not convert to LIR");
 
-            let blir = lir_to_lirnodes(lir);
-            let cfg = gen_local_cfg(&blir);
+        let lirnodes = lir_to_lirnodes(lir);
+        defs.push(FunctionDef {
+            funcid: expr::FuncId(i),
+            local_cfg: gen_local_cfg(&lirnodes),
+            local_lirnodes: lirnodes
+        });
+    }
 
-            GlobalCfgNode::new(cfg, blir, name)
-        }).collect()
-    ))
+    Ok((module, FunctionDefSet(defs)))
 }
 
-fn decode_macho(code: macho::CodeResult, arch: Option<macho::MachoArch>) -> Result<(Abi, Vec<GlobalCfgNode>), DecodeError> {
+fn decode_macho(code: macho::CodeResult, arch: Option<macho::MachoArch>) -> Result<(Module, FunctionDefSet), DecodeError> {
     let functions = match code {
         macho::CodeResult::UnknownBlock(unknown, addr) => vec![(None, unknown, addr)],
         macho::CodeResult::Functions(functions) => functions,
@@ -54,31 +134,52 @@ fn decode_macho(code: macho::CodeResult, arch: Option<macho::MachoArch>) -> Resu
     }
 }
 
-fn decode_wasm(module: wasmmod::Module) -> Result<(Abi, Vec<GlobalCfgNode>), DecodeError> {
-    Ok((
-        wasm::abi(),
-        module.functions().iter().enumerate().filter_map(|(i, func)| {
-            if i > 12 {
-                return None;
+fn decode_wasm(wmodule: wasmmod::Module) -> Result<(Module, FunctionDefSet), DecodeError> {
+    let mut module = Module {
+        abi: wasm::abi(),
+        functions: vec![],
+    };
+    let mut defs = Vec::new();
+
+    for import in wmodule.imports() {
+        module.functions.push(FunctionDecl {
+            name: Some(import.name.clone()),
+            args: vec![],
+            funcid: expr::FuncId(import.idx)
+        });
+    }
+
+    for func in wmodule.functions() {
+        if func.idx >= 246 {
+            continue;
+        }
+
+        let lir = match wasm::to_lir(&func.body, wmodule.types()) {
+            Ok(lir) => lir,
+            Err(err) => {
+                eprintln!("Could not translate wasm function: {err}");
+                return Err(DecodeError::Invalid)
             }
+        };
 
-            let lir = match wasm::to_lir(&func.body, module.types()) {
-                Ok(lir) => lir,
-                Err(err) => {
-                    eprintln!("Could not translate wasm function: {err}");
-                    return None
-                }
-            };
+        module.functions.push(FunctionDecl {
+            name: func.name.clone(),
+            args: vec![],
+            funcid: expr::FuncId(func.idx)
+        });
 
-            let blir = lir_to_lirnodes(lir);
-            let cfg = gen_local_cfg(&blir);
+        let lirnodes = lir_to_lirnodes(lir);
+        defs.push(FunctionDef {
+            funcid: expr::FuncId(func.idx),
+            local_cfg: gen_local_cfg(&lirnodes),
+            local_lirnodes: lirnodes
+        });
+    }
 
-            Some(GlobalCfgNode::new(cfg, blir, func.name.clone()))
-        }).collect()
-    ))
+    Ok((module, FunctionDefSet(defs)))
 }
 
-pub fn load_lir_from_binary(buf: &[u8]) -> Result<(Abi, Vec<GlobalCfgNode>), DecodeError> {
+pub fn load_lir_from_binary(buf: &[u8]) -> Result<(Module, FunctionDefSet), DecodeError> {
     match macho::code_from(&buf) {
         Ok((code, arch)) => return decode_macho(code, arch),
         Err(macho::OfileErr::NoCode) => return Err(DecodeError::NoCode),

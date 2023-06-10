@@ -1,6 +1,6 @@
-use crate::ty;
+use crate::{ty, pretty};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     Not,
     CmpEq, CmpNe, CmpLt, CmpLe, CmpGt, CmpGe,
@@ -82,7 +82,7 @@ impl std::fmt::Display for BinaryOp {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct FuncId(pub usize);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -112,7 +112,11 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn fmt_with_precedence(&self, f: &mut std::fmt::Formatter<'_>, prec: usize) -> std::fmt::Result {
+    pub fn fmt_with_context(&self, f: &mut std::fmt::Formatter, ctx: &mut pretty::PrettyPrintContext) -> std::fmt::Result {
+        self.fmt_with_prec_ctx(f, 0, ctx)
+    }
+
+    pub fn fmt_with_prec_ctx(&self, f: &mut std::fmt::Formatter<'_>, prec: usize, ctx: &mut pretty::PrettyPrintContext) -> std::fmt::Result {
         const REF: usize = 5;
         const FUNC: usize = 15;
         const UNARY: usize = 10;
@@ -128,69 +132,73 @@ impl Expr {
                     write!(f, "{}", x)
                 }
             },
-            Expr::Func(idx) => write!(f, "fn{}", idx.0),
+            Expr::Func(idx) => {
+                match ctx.func(*idx) {
+                    Some(func) if func.name.is_some() => write!(f, "{}", func.name.as_ref().unwrap()),
+                    _ => write!(f, "fn{}", idx.0)
+                }
+            },
             Expr::Bool(b) => write!(f, "{}", b),
-
             Expr::Deref { ptr, size } => {
                 if prec >= REF {
                     write!(f, "(*{size} ")?;
-                    ptr.fmt_with_precedence(f, REF)?;
+                    ptr.fmt_with_prec_ctx(f, REF, ctx)?;
                     write!(f, ")")
                 } else {
                     write!(f, "*{size} ")?;
-                    ptr.fmt_with_precedence(f, REF)
+                    ptr.fmt_with_prec_ctx(f, REF, ctx)
                 }
             },
             Expr::Ref(value) => {
                 if prec >= REF {
                     write!(f, "(&")?;
-                    value.fmt_with_precedence(f, REF)?;
+                    value.fmt_with_prec_ctx(f, REF, ctx)?;
                     write!(f, ")")
                 } else {
                     write!(f, "&")?;
-                    value.fmt_with_precedence(f, REF)
+                    value.fmt_with_prec_ctx(f, REF, ctx)
                 }
             }
             Expr::Unary { op, expr } if op.is_cmp() => {
                 if prec >= UNARY {
                     write!(f, "(")?;
-                    expr.fmt_with_precedence(f, UNARY)?;
+                    expr.fmt_with_prec_ctx(f, UNARY, ctx)?;
                     write!(f, ".{})", op)
                 } else {
-                    expr.fmt_with_precedence(f, UNARY)?;
+                    expr.fmt_with_prec_ctx(f, UNARY, ctx)?;
                     write!(f, ".{}", op)
                 }
             }
             Expr::Unary { op, expr } => {
                 if prec >= UNARY {
                     write!(f, "({}", op)?;
-                    expr.fmt_with_precedence(f, UNARY)?;
+                    expr.fmt_with_prec_ctx(f, UNARY, ctx)?;
                     write!(f, ")")
                 } else {
                     write!(f, "{}", op)?;
-                    expr.fmt_with_precedence(f, UNARY)
+                    expr.fmt_with_prec_ctx(f, UNARY, ctx)
                 }
             }
             Expr::Binary { op, lhs, rhs } => {
                 if prec >= BINARY {
                     write!(f, "(")?;
-                    lhs.fmt_with_precedence(f, BINARY)?;
+                    lhs.fmt_with_prec_ctx(f, BINARY, ctx)?;
                     write!(f, " {} ", op)?;
-                    rhs.fmt_with_precedence(f, BINARY)?;
+                    rhs.fmt_with_prec_ctx(f, BINARY, ctx)?;
                     write!(f, ")")
                 } else {
-                    lhs.fmt_with_precedence(f, BINARY)?;
+                    lhs.fmt_with_prec_ctx(f, BINARY, ctx)?;
                     write!(f, " {} ", op)?;
-                    rhs.fmt_with_precedence(f, BINARY)
+                    rhs.fmt_with_prec_ctx(f, BINARY, ctx)
                 }
             },
             Expr::Call { func, args } => {
                 if prec >= FUNC {
                     write!(f, "(")?;
-                    func.fmt_with_precedence(f, FUNC)?;
+                    func.fmt_with_prec_ctx(f, FUNC, ctx)?;
                     write!(f, "({}))", args.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", "))
                 } else {
-                    func.fmt_with_precedence(f, FUNC)?;
+                    func.fmt_with_prec_ctx(f, FUNC, ctx)?;
                     write!(f, "({})", args.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", "))
                 }
             },
@@ -200,7 +208,7 @@ impl Expr {
 
 impl std::fmt::Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt_with_precedence(f, 0)
+        self.fmt_with_prec_ctx(f, 0, &mut pretty::PrettyPrintContext::new_empty())
     }
 }
 

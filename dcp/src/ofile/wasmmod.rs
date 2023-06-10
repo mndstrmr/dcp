@@ -7,21 +7,30 @@ pub enum WasmDecodeError {
     Invalid
 }
 
-// pub type Module<'a> = Vec<wasmparser::Payload<'a>>; 
-
 pub struct Function<'a> {
     pub body: wasmparser::FunctionBody<'a>,
     pub name: Option<String>,
+    pub idx: usize
+}
+
+pub struct Import {
+    pub name: String,
+    pub idx: usize
 }
 
 pub struct Module<'a> {
     functions: Vec<Function<'a>>,
     types: Vec<wasmparser::FuncType>,
+    imports: Vec<Import>
 }
 
 impl<'a> Module<'a> {
     pub fn functions(&self) -> &[Function<'a>] {
         &self.functions
+    }
+
+    pub fn imports(&self) -> &[Import] {
+        &self.imports
     }
 
     pub fn types(&self) -> &[wasmparser::FuncType] {
@@ -34,7 +43,11 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
         return Err(WasmDecodeError::InvalidFormat)
     }
 
-    let mut res = Module { functions: Vec::new(), types: Vec::new() };
+    let mut res = Module {
+        functions: Vec::new(),
+        types: Vec::new(),
+        imports: Vec::new()
+    };
     let mut types = Vec::new();
     let mut import_count = 0;
     let mut names = HashMap::new();
@@ -43,7 +56,8 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
         match payload {
             Ok(Payload::CodeSectionEntry(body)) => res.functions.push(Function {
                 body,
-                name: names.get(&(res.functions.len() + import_count)).map(|x| str::to_string(*x))
+                name: names.get(&(res.functions.len() + import_count)).map(|x| str::to_string(*x)),
+                idx: res.functions.len() + import_count
             }),
             Ok(Payload::TypeSection(reader)) => {
                 for ty in reader {
@@ -63,6 +77,10 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
                         Ok(x) => match x.ty {
                             wasmparser::TypeRef::Func(func) => {
                                 res.types.push(types[func as usize].clone());
+                                res.imports.push(Import {
+                                    idx: import_count,
+                                    name: x.name.to_string()
+                                });
                                 import_count += 1;
                             },
                             _ => {}
