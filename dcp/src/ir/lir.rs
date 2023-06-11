@@ -140,7 +140,7 @@ impl LirFuncBuilder {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LirNode {
     pub code: Vec<Lir>,
 }

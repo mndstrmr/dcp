@@ -78,7 +78,7 @@ fn append_expr_to_frame(expr: &mut expr::Expr, base_reg: &str, stack_frame: &mut
         }
         expr::Expr::Ref(value) => append_expr_to_frame(value, base_reg, stack_frame, name_gen),
         expr::Expr::Unary { expr, .. } => append_expr_to_frame(expr, base_reg, stack_frame, name_gen),
-        expr::Expr::Name(_) | expr::Expr::Bool(_) |  expr::Expr::Num(_) | expr::Expr::Func(_) => {}
+        expr::Expr::Name(_) | expr::Expr::Bool(_) |  expr::Expr::Num(_) | expr::Expr::Func(_) | expr::Expr::BuiltIn(_) => {}
     }
 }
 

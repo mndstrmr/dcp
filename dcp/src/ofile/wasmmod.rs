@@ -10,7 +10,8 @@ pub enum WasmDecodeError {
 pub struct Function<'a> {
     pub body: wasmparser::FunctionBody<'a>,
     pub name: Option<String>,
-    pub idx: usize
+    pub idx: usize,
+    pub exported: bool
 }
 
 pub struct Import {
@@ -21,7 +22,8 @@ pub struct Import {
 pub struct Module<'a> {
     functions: Vec<Function<'a>>,
     types: Vec<wasmparser::FuncType>,
-    imports: Vec<Import>
+    imports: Vec<Import>,
+    raw_types: Vec<wasmparser::FuncType>,
 }
 
 impl<'a> Module<'a> {
@@ -36,6 +38,10 @@ impl<'a> Module<'a> {
     pub fn types(&self) -> &[wasmparser::FuncType] {
         &self.types
     }
+
+    pub fn raw_types(&self) -> &[wasmparser::FuncType] {
+        &self.raw_types
+    }
 }
 
 pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
@@ -46,9 +52,9 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
     let mut res = Module {
         functions: Vec::new(),
         types: Vec::new(),
-        imports: Vec::new()
+        imports: Vec::new(),
+        raw_types: Vec::new()
     };
-    let mut types = Vec::new();
     let mut import_count = 0;
     let mut names = HashMap::new();
 
@@ -57,12 +63,13 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
             Ok(Payload::CodeSectionEntry(body)) => res.functions.push(Function {
                 body,
                 name: names.get(&(res.functions.len() + import_count)).map(|x| str::to_string(*x)),
-                idx: res.functions.len() + import_count
+                idx: res.functions.len() + import_count,
+                exported: names.contains_key(&(res.functions.len() + import_count))
             }),
             Ok(Payload::TypeSection(reader)) => {
                 for ty in reader {
                     match ty {
-                        Ok(wasmparser::Type::Func(func)) => types.push(func),
+                        Ok(wasmparser::Type::Func(func)) => res.raw_types.push(func),
                         Ok(_) => {},
                         Err(err) => {
                             eprintln!("wasmparser err: {err}");
@@ -76,7 +83,7 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
                     match import {
                         Ok(x) => match x.ty {
                             wasmparser::TypeRef::Func(func) => {
-                                res.types.push(types[func as usize].clone());
+                                res.types.push(res.raw_types[func as usize].clone());
                                 res.imports.push(Import {
                                     idx: import_count,
                                     name: x.name.to_string()
@@ -95,7 +102,7 @@ pub fn module_from(buf: &[u8]) -> Result<Module, WasmDecodeError> {
             Ok(Payload::FunctionSection(reader)) => {
                 for ty in reader {
                     match ty {
-                        Ok(x) => res.types.push(types[x as usize].clone()),
+                        Ok(x) => res.types.push(res.raw_types[x as usize].clone()),
                         Err(err) => {
                             eprintln!("wasmparser err: {err}");
                             return Err(WasmDecodeError::Invalid)

@@ -1,3 +1,5 @@
+#![feature(let_chains)]
+
 use std::{fs::File, io::Read};
 
 use clap::Parser;
@@ -44,8 +46,15 @@ fn main() {
     dcp::dataflow::insert_func_args(&module, &mut defs);
 
     for mut function in defs.into_iter() {
-        // Add registers to function calls if necessary
+        let Some(name) = &module.find_decl(function.funcid).unwrap().name else {
+            continue;
+        };
+        if name != "fflush" {
+            continue;
+        }
+
         dcp::dataflow::compress_cfg(&mut function.local_cfg, &mut function.local_lirnodes);
+        dcp::dataflow::inline_short_returns(&mut function.local_cfg, &mut function.local_lirnodes);
         
         // Eliminate frame pointers
         // FIXME: fp/sp should not be eliminated entirely, as they are needed upon return
@@ -75,6 +84,7 @@ fn main() {
         dcp::opt::cull_fallthrough_jumps(&mut mir);
 
         // Improves if/if-else/loop/while/for
+        // FIXME: Repeat for as long as necessary, not a fixed number of times
         for _ in 0..5 {
             dcp::opt::insert_loops(&mut mir);
             dcp::opt::gotos_to_loop_continues(&mut mir);

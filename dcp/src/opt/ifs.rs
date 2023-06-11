@@ -77,7 +77,7 @@ impl MirVisitorMut for IfChainVisitor {
         self.visit_block(true_then);
         self.visit_block(false_then);
 
-        if !false_then.is_empty() || true_then.len() > 1 {
+        if !false_then.is_empty() || true_then.len() != 1 {
             return MVMAction::Keep
         }
 

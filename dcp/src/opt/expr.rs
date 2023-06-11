@@ -2,7 +2,7 @@ use crate::{expr::{self, UnaryOp}, mir::{MirVisitorMut, self}, lir};
 
 fn collapse_cmp_in(sexpr: &mut expr::Expr) {
     match sexpr {
-        expr::Expr::Name(_) | expr::Expr::Num(_) | expr::Expr::Bool(_) | expr::Expr::Func(_) => {},
+        expr::Expr::Name(_) | expr::Expr::Num(_) | expr::Expr::Bool(_) | expr::Expr::Func(_) | expr::Expr::BuiltIn(_) => {},
         expr::Expr::Unary { expr, op } if op.is_cmp() => {
             if let expr::Expr::Binary { op: expr::BinaryOp::Cmp, lhs, rhs } = expr.as_mut() {
                 collapse_cmp_in(lhs);
@@ -43,7 +43,7 @@ pub fn collapse_cmp(code: &mut mir::MirFunc) {
 fn reduce_binops_in(sexpr: &mut expr::Expr) {
     use expr::{Expr::*, BinaryOp::*};
     match sexpr {
-        expr::Expr::Name(_) | expr::Expr::Num(_) | expr::Expr::Bool(_) | expr::Expr::Func(_) => {},
+        expr::Expr::Name(_) | expr::Expr::Num(_) | expr::Expr::Bool(_) | expr::Expr::Func(_) | expr::Expr::BuiltIn(_) => {},
         expr::Expr::Unary { expr, op: UnaryOp::Not } => {
             reduce_binops_in(expr.as_mut());
             *sexpr = expr.neg();

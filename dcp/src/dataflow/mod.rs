@@ -1,4 +1,5 @@
 mod dead_writes;
+
 pub use dead_writes::*;
 
 mod single_use;
@@ -72,4 +73,42 @@ pub fn compress_cfg(cfg: &mut cfg::ControlFlowGraph, nodes: &mut Vec<lir::LirNod
 
     cfg.trim_unreachable();
     // println!("{}", cfg.to_dot(|n| format!("\"{n}: {}\"", nodes[n].code.len())));
+}
+
+pub fn inline_short_returns(cfg: &mut cfg::ControlFlowGraph, nodes: &mut Vec<lir::LirNode>) {
+    const SHORT_SIZE: usize = 15;
+    
+    let mut n = 0;
+    while n < nodes.len() {
+        let node = &nodes[n];
+        
+        if let Some(lir::Lir::Return(_)) = node.code.last() && node.code.len() <= SHORT_SIZE {
+            let node = node.clone();
+            let incoming = cfg.incoming_for(n).clone();
+            
+            if incoming.len() <= 1 {
+                n += 1;
+                continue;
+            }
+
+            for incoming in incoming {
+                nodes.push(node.clone());
+                let new = nodes.len() - 1;
+                cfg.add_node(new);
+                cfg.remove_edge(incoming, n);
+                cfg.add_edge(incoming, new);
+
+                match nodes[incoming].code.last_mut() {
+                    Some(lir::Lir::Branch { target, .. }) if target.0 == n => {
+                        target.0 = new;
+                    }
+                    _ => nodes[incoming].code.push(lir::Lir::Branch { target: lir::Label(new), cond: None })
+                }
+            }
+
+            cfg.remove_node(n);
+        }
+
+        n += 1;
+    }
 }

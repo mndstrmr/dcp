@@ -44,8 +44,13 @@ fn reads_before_writes_recursive(module: &mut Module, defs: &FunctionDefSet, glo
     let mut to_visit = vec![0];
     let mut visited = HashSet::new();
 
+    let def = match defs.find(global_node) {
+        Some(def) => def,
+        None => return false
+    };
+
     'outer: while let Some(node) = to_visit.pop() {
-        for i in 0..defs.find(global_node).unwrap().local_lirnodes[node].code.len() {
+        for i in 0..def.local_lirnodes[node].code.len() {
             match stmt_reads_or_writes_recursive(module, defs, global_visited, global_node, node, i, name) {
                 ReadWrite::Reads => return true,
                 ReadWrite::Writes => continue 'outer,
@@ -53,7 +58,7 @@ fn reads_before_writes_recursive(module: &mut Module, defs: &FunctionDefSet, glo
             }
         }
 
-        for neighbour in defs.find(global_node).unwrap().local_cfg.outgoing_for(node) {
+        for neighbour in def.local_cfg.outgoing_for(node) {
             if visited.insert(*neighbour) {
                 to_visit.push(*neighbour);
             }
@@ -111,7 +116,7 @@ fn insert_func_args_in_expr(module: &Module, expr: &mut expr::Expr) {
                 }
             }
         }
-        expr::Expr::Bool(_) | expr::Expr::Name(_) | expr::Expr::Num(_) | expr::Expr::Func(_) => {},
+        expr::Expr::Bool(_) | expr::Expr::Name(_) | expr::Expr::Num(_) | expr::Expr::Func(_) | expr::Expr::BuiltIn(_) => {},
         expr::Expr::Deref { ptr, .. } => {
             insert_func_args_in_expr(module, ptr);
         }

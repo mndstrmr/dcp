@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{ty, pretty};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,7 +48,7 @@ impl UnaryOp {
 pub enum BinaryOp {
     Eq, Ne, Lt, Le, Gt, Ge,
     Add, Sub, Mul, Div,
-    And, Or, Shl, Shr,
+    And, Or, Shl, Shr, Asr, Xor,
     Cmp
 }
 
@@ -75,10 +77,31 @@ impl std::fmt::Display for BinaryOp {
             BinaryOp::Div => "/",
             BinaryOp::Shl => "<<",
             BinaryOp::Shr => ">>",
+            BinaryOp::Asr => ">>>",
+            BinaryOp::Xor => "^",
             BinaryOp::And => "and",
             BinaryOp::Or => "or",
             BinaryOp::Cmp => "cmp",
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltIn {
+    Rotr,
+    Rotl,
+    Ctz,
+    Clz
+}
+
+impl Display for BuiltIn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuiltIn::Rotr => write!(f, "rotr"),
+            BuiltIn::Rotl => write!(f, "rotl"),
+            BuiltIn::Ctz => write!(f, "ctz"),
+            BuiltIn::Clz => write!(f, "clz"),
+        }
     }
 }
 
@@ -90,6 +113,7 @@ pub enum Expr {
     Name(String), // FIXME: Intern this or something some day
     Num(i64),
     Func(FuncId),
+    BuiltIn(BuiltIn),
     Bool(bool),
     Deref {
         ptr: Box<Expr>,
@@ -137,7 +161,8 @@ impl Expr {
                     Some(func) if func.name.is_some() => write!(f, "{}", func.name.as_ref().unwrap()),
                     _ => write!(f, "fn{}", idx.0)
                 }
-            },
+            }
+            Expr::BuiltIn(builtin) => write!(f, "{builtin}"),
             Expr::Bool(b) => write!(f, "{}", b),
             Expr::Deref { ptr, size } => {
                 if prec >= REF {
@@ -252,7 +277,8 @@ impl Expr {
             Expr::Num(_) => false,
             Expr::Deref { ptr, .. } => ptr.has_side_effects(),
             Expr::Ref(value) => value.has_side_effects(),
-            Expr::Call { .. } => true
+            Expr::Call { .. } => true,
+            Expr::BuiltIn(_) => false
         }
     }
 
@@ -266,7 +292,8 @@ impl Expr {
             Expr::Num(_) => 0,
             Expr::Deref { ptr, .. } => ptr.count_reads(name),
             Expr::Ref(value) => value.count_reads(name),
-            Expr::Call { func, args } => args.iter().fold(func.count_reads(name), |prev, x| prev + x.count_reads(name))
+            Expr::Call { func, args } => args.iter().fold(func.count_reads(name), |prev, x| prev + x.count_reads(name)),
+            Expr::BuiltIn(_) => 0
         }
     }
 
@@ -298,7 +325,7 @@ impl Expr {
                     arg.append_read_names_rhs(names);
                 }
             }
-            Expr::Num(_) | Expr::Bool(_) | Expr::Func(_) => {}
+            Expr::Num(_) | Expr::Bool(_) | Expr::Func(_) | Expr::BuiltIn(_) => {}
         }
     }
 
@@ -327,6 +354,7 @@ impl Expr {
                     arg.replace_name(name, expr);
                 }
             }
+            Expr::BuiltIn(_) => {}
         }
     }
 }

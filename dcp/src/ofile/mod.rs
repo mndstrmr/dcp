@@ -150,14 +150,14 @@ fn decode_wasm(wmodule: wasmmod::Module) -> Result<(Module, FunctionDefSet), Dec
     }
 
     for func in wmodule.functions() {
-        if func.idx >= 246 {
+        if !func.exported {
             continue;
         }
 
-        let lir = match wasm::to_lir(&func.body, wmodule.types()) {
+        let lir = match wasm::to_lir(&func.body, wmodule.types(), wmodule.raw_types()) {
             Ok(lir) => lir,
             Err(err) => {
-                eprintln!("Could not translate wasm function: {err}");
+                eprintln!("Could not translate wasm function {:?}: {err}", func.name);
                 return Err(DecodeError::Invalid)
             }
         };

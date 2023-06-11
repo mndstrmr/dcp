@@ -6,7 +6,7 @@ use crate::{dataflow::Abi, lir, expr, ty};
 
 pub fn abi() -> Abi {
     Abi {
-        args: vec![],
+        args: vec!["l0", "l1", "l2", "l3", "l4", "l5", "l6", "l7"],
         global: vec!["sp"],
         base_reg: None,
         callee_saved: vec![],
@@ -94,9 +94,9 @@ impl BlockStack {
         lir::Label(self.next - 2)
     }
 
-    pub fn pop(&mut self) -> (lir::Label, lir::Label, bool) {
-        let (start, end, loops) = self.blocks.pop().expect("Empty block stack");
-        (lir::Label(start), lir::Label(end), loops)
+    pub fn pop(&mut self) -> lir::Label {
+        let (_, end, _) = self.blocks.pop().expect("Empty block stack");
+        lir::Label(end)
     }
 
     pub fn branch_target_rel(&self, rel: usize) -> lir::Label {
@@ -125,7 +125,7 @@ impl<'a> Display for TranslationError<'a> {
     }
 }
 
-pub fn to_lir<'a>(function: &'a wasmparser::FunctionBody, func_types: &[wasmparser::FuncType]) -> Result<lir::LirFunc, TranslationError<'a>> {
+pub fn to_lir<'a>(function: &'a wasmparser::FunctionBody, func_types: &[wasmparser::FuncType], raw_types: &[wasmparser::FuncType]) -> Result<lir::LirFunc, TranslationError<'a>> {
     let mut block = lir::LirFuncBuilder::new();
 
     let mut blocks = BlockStack::new();
@@ -137,7 +137,7 @@ pub fn to_lir<'a>(function: &'a wasmparser::FunctionBody, func_types: &[wasmpars
             Err(_) => return Err(TranslationError::Decode)
         };
         // println!("{:?}", insn);
-        gen_insn(insn, &mut block, &mut blocks, &mut stack, func_types)?;
+        gen_insn(insn, &mut block, &mut blocks, &mut stack, func_types, raw_types)?;
     }
 
     if stack.is_empty() {
@@ -153,14 +153,12 @@ fn gen_insn<'a>(
     insn: wasmparser::Operator<'a>,
     block: &mut lir::LirFuncBuilder,
     blocks: &mut BlockStack, stack: &mut StackNaming,
-    func_types: &[wasmparser::FuncType]
+    func_types: &[wasmparser::FuncType],
+    raw_types: &[wasmparser::FuncType]
 ) -> Result<(), TranslationError<'a>> {
     match insn {
         Operator::End => {
-            let (start, end, loops) = blocks.pop();
-            if loops {
-                block.push(lir::Lir::Branch { cond: None, target: start });
-            }
+            let end = blocks.pop();
             block.push(lir::Lir::Label(end));
             Ok(())
         }
@@ -215,7 +213,10 @@ fn gen_insn<'a>(
         }
         Operator::I32Add | Operator::I64Add | Operator::F32Add | Operator::F64Add |
         Operator::I32And | Operator::I64And |
+        Operator::I32Or | Operator::I64Or |
         Operator::I32Shl | Operator::I64Shl |
+        Operator::I32ShrU | Operator::I64ShrU |
+        Operator::I32Xor | Operator::I64Xor |
         Operator::I32Sub | Operator::I64Sub | Operator::F32Sub | Operator::F64Sub => {
             let src2 = stack.pop();
             let src1 = stack.pop();
@@ -225,8 +226,11 @@ fn gen_insn<'a>(
                     op: match insn {
                         Operator::I32Add | Operator::I64Add | Operator::F32Add | Operator::F64Add => expr::BinaryOp::Add,
                         Operator::I32And | Operator::I64And => expr::BinaryOp::And,
+                        Operator::I32Or | Operator::I64Or => expr::BinaryOp::Or,
                         Operator::I32Sub | Operator::I64Sub | Operator::F32Sub | Operator::F64Sub => expr::BinaryOp::Sub,
                         Operator::I32Shl | Operator::I64Shl => expr::BinaryOp::Shl,
+                        Operator::I32ShrU | Operator::I64ShrU => expr::BinaryOp::Shr,
+                        Operator::I32Xor | Operator::I64Xor => expr::BinaryOp::Xor,
                         _ => unreachable!()
                     },
                     lhs: src1.bexpr(),
@@ -236,22 +240,66 @@ fn gen_insn<'a>(
             });
             Ok(())
         }
-        Operator::GlobalGet { global_index: 0 } => {
+        Operator::I32Rotr | Operator::I64Rotr |
+        Operator::I32Rotl | Operator::I64Rotl => {
+            let src2 = stack.pop();
+            let src1 = stack.pop();
+            let dst = stack.push();
+
+            block.push(lir::Lir::Assign {
+                dst: dst.expr(),
+                src: expr::Expr::Call {
+                    func: Box::new(expr::Expr::BuiltIn(match insn {
+                        Operator::I32Rotr | Operator::I64Rotr => expr::BuiltIn::Rotr,
+                        Operator::I32Rotl | Operator::I64Rotl => expr::BuiltIn::Rotl,
+                        _ => unreachable!()
+                    })),
+                    args: vec![src1.expr(), src2.expr()]
+                }
+            });
+            Ok(())
+        }
+        Operator::I32Ctz | Operator::I64Ctz |
+        Operator::I32Clz | Operator::I64Clz => {
+            let src1 = stack.pop();
+            let dst = stack.push();
+
+            block.push(lir::Lir::Assign {
+                dst: dst.expr(),
+                src: expr::Expr::Call {
+                    func: Box::new(expr::Expr::BuiltIn(match insn {
+                        Operator::I32Ctz | Operator::I64Ctz => expr::BuiltIn::Ctz,
+                        Operator::I32Clz | Operator::I64Clz => expr::BuiltIn::Clz,
+                        _ => unreachable!()
+                    })),
+                    args: vec![src1.expr()]
+                }
+            });
+            Ok(())
+        }
+        Operator::GlobalGet { global_index } => {
             let dst = stack.push();
             block.push(lir::Lir::Assign {
-                src: expr::Expr::Name("sp".to_string()),
+                src: expr::Expr::Name(match global_index {
+                    0 => "sp".to_string(),
+                    _ => format!("g{global_index}").to_string()
+                }),
                 dst: dst.expr()
             });
             Ok(())
         }
-        Operator::GlobalSet { global_index: 0 } => {
+        Operator::GlobalSet { global_index } => {
             let src = stack.pop();
             block.push(lir::Lir::Assign {
                 src: src.expr(),
-                dst: expr::Expr::Name("sp".to_string())
+                dst: expr::Expr::Name(match global_index {
+                    0 => "sp".to_string(),
+                    _ => format!("g{global_index}").to_string()
+                }) // FIXME: Mark as being global somehow
             });
             Ok(())
         }
+        Operator::I64Store { memarg: wasmparser::MemArg { offset, .. } } |
         Operator::I32Store { memarg: wasmparser::MemArg { offset, .. } } |
         Operator::I32Store8 { memarg: wasmparser::MemArg { offset, .. } } |
         Operator::I32Store16 { memarg: wasmparser::MemArg { offset, .. } } => {
@@ -265,6 +313,7 @@ fn gen_insn<'a>(
                         rhs: Box::new(expr::Expr::Num(offset as i64)),
                     }),
                     size: match insn {
+                        Operator::I64Store { .. } => ty::Size::Size64,
                         Operator::I32Store { .. } => ty::Size::Size32,
                         Operator::I32Store8 { .. } => ty::Size::Size8,
                         Operator::I32Store16 { .. } => ty::Size::Size16,
@@ -275,6 +324,7 @@ fn gen_insn<'a>(
             });
             Ok(())
         }
+        Operator::I64Load { memarg: wasmparser::MemArg { offset, .. } } |
         Operator::I32Load { memarg: wasmparser::MemArg { offset, .. } } |
         Operator::I32Load8U { memarg: wasmparser::MemArg { offset, .. } } |
         Operator::I32Load16U { memarg: wasmparser::MemArg { offset, .. } } => {
@@ -289,6 +339,7 @@ fn gen_insn<'a>(
                         rhs: Box::new(expr::Expr::Num(offset as i64)),
                     }),
                     size: match insn {
+                        Operator::I64Load { .. } => ty::Size::Size64,
                         Operator::I32Load { .. } => ty::Size::Size32,
                         Operator::I32Load8U { .. } => ty::Size::Size8,
                         Operator::I32Load16U { .. } => ty::Size::Size16,
@@ -314,7 +365,9 @@ fn gen_insn<'a>(
             Ok(())
         }
         Operator::I32LtS | Operator::I32LeS |
+        Operator::I32LtU | Operator::I32LeU |
         Operator::I32GtS | Operator::I32GeS |
+        Operator::I32GtU | Operator::I32GeU |
         Operator::I32Eq | Operator::I32Ne => {
             let src2 = stack.pop();
             let src1 = stack.pop();
@@ -323,9 +376,13 @@ fn gen_insn<'a>(
                 src: expr::Expr::Binary {
                     op: match insn {
                         Operator::I32LtS => expr::BinaryOp::Lt,
+                        Operator::I32LtU => expr::BinaryOp::Lt,
                         Operator::I32LeS => expr::BinaryOp::Le,
+                        Operator::I32LeU => expr::BinaryOp::Le,
                         Operator::I32GtS => expr::BinaryOp::Gt,
+                        Operator::I32GtU => expr::BinaryOp::Gt,
                         Operator::I32GeS => expr::BinaryOp::Ge,
+                        Operator::I32GeU => expr::BinaryOp::Ge,
                         Operator::I32Eq => expr::BinaryOp::Eq,
                         Operator::I32Ne => expr::BinaryOp::Ne,
                         _ => unreachable!()
@@ -373,7 +430,6 @@ fn gen_insn<'a>(
                 return Err(TranslationError::BadFunctionIndex)
             }
 
-
             let mut args = Vec::new();
             for _ in func_types[function_index as usize].params() {
                 args.push(stack.pop().expr());
@@ -410,6 +466,48 @@ fn gen_insn<'a>(
                 Ok(())
             }
         }
+        // FIXME: Add real support for this
+        Operator::CallIndirect { type_index, table_index, .. } => {
+            let mut args = Vec::new();
+            for _ in raw_types[type_index as usize].params() {
+                args.push(stack.pop().expr());
+            }
+
+            if raw_types[type_index as usize].results().len() == 0 {
+                block.push(lir::Lir::Do(expr::Expr::Call {
+                    func: Box::new(expr::Expr::Num(table_index as i64)),
+                    args
+                }));
+            } else {
+                let res = stack.push();
+                assert_eq!(func_types[type_index as usize].results().len(), 1);
+                block.push(lir::Lir::Assign {
+                    dst: res.expr(),
+                    src: expr::Expr::Call {
+                        func: Box::new(expr::Expr::Num(table_index as i64)),
+                        args
+                    }
+                });
+            }
+
+            Ok(())
+        }
+        Operator::I32WrapI64 => {
+            let src = stack.pop();
+            let dst = stack.push();
+            block.push(lir::Lir::Assign {
+                dst: dst.expr(),
+                src: expr::Expr::Binary {
+                    op: expr::BinaryOp::And,
+                    lhs: src.bexpr(),
+                    rhs: Box::new(expr::Expr::Num(0xffffffff))
+                }
+            });
+            Ok(())
+        },
+        // Types currently don't exist, so this is I guess meaningless
+        Operator::I64Extend32S | Operator::I64ExtendI32S | Operator::I64ExtendI32U |
+        Operator::I64Extend16S => Ok(()),
         Operator::Unreachable => {
             // FIXME: Add something here
             Ok(())
