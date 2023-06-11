@@ -46,13 +46,6 @@ fn main() {
     dcp::dataflow::insert_func_args(&module, &mut defs);
 
     for mut function in defs.into_iter() {
-        let Some(name) = &module.find_decl(function.funcid).unwrap().name else {
-            continue;
-        };
-        if name != "fflush" {
-            continue;
-        }
-
         dcp::dataflow::compress_cfg(&mut function.local_cfg, &mut function.local_lirnodes);
         dcp::dataflow::inline_short_returns(&mut function.local_cfg, &mut function.local_lirnodes);
         
@@ -83,6 +76,8 @@ fn main() {
         dcp::opt::compress_control_flow(&mut mir);
         dcp::opt::cull_fallthrough_jumps(&mut mir);
 
+        dcp::opt::clone_equiv_labels_back(&mut mir);
+
         // Improves if/if-else/loop/while/for
         // FIXME: Repeat for as long as necessary, not a fixed number of times
         for _ in 0..5 {
@@ -97,8 +92,8 @@ fn main() {
             dcp::opt::inf_loops_unreachable(&mut mir);
             dcp::opt::loop_start_label_swap(&mut mir);
             dcp::opt::gotos_to_loop_breaks(&mut mir);
-            dcp::opt::terminating_to_break(&mut mir);
             dcp::opt::trim_labels(&mut mir);
+            dcp::opt::terminating_to_break(&mut mir);
             dcp::opt::loops_to_whiles(&mut mir);
             dcp::opt::whiles_to_fors(&mut mir);
             dcp::opt::flip_negated_ifs(&mut mir);

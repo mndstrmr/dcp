@@ -276,13 +276,13 @@ impl MirVisitorMut for TerminatingToBreak {
             return mir::MVMAction::Keep
         };
 
-        if true_then.len() <= 1 || !false_then.is_empty() {
+        if true_then.len() < 1 || !false_then.is_empty() {
             return mir::MVMAction::Keep
         }
 
         match true_then.last().unwrap() {
             mir::Mir::Break => {
-                if break_count != 1 {
+                if true_then.len() == 1 || break_count != 1 {
                     return mir::MVMAction::Keep
                 }
 

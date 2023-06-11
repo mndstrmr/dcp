@@ -62,6 +62,9 @@ impl MirVisitorMut for FlipIfVisitor {
             std::mem::swap(true_then, false_then);
         }
 
+        self.visit_block(true_then);
+        self.visit_block(false_then);
+
         MVMAction::Keep
     }
 }

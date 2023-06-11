@@ -480,7 +480,7 @@ fn gen_insn<'a>(
                 }));
             } else {
                 let res = stack.push();
-                assert_eq!(func_types[type_index as usize].results().len(), 1);
+                assert_eq!(raw_types[type_index as usize].results().len(), 1);
                 block.push(lir::Lir::Assign {
                     dst: res.expr(),
                     src: expr::Expr::Call {

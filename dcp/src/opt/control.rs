@@ -123,3 +123,41 @@ fn cull_fallthrough_jumps_with_end_scope(code: &mut Vec<Mir>, end: Option<&HashS
 pub fn cull_fallthrough_jumps(block: &mut MirFunc) {
     cull_fallthrough_jumps_with_end_scope(&mut block.code, None);
 }
+
+struct CloneEquivLabelsBack {
+    terminating: Vec<lir::Label>
+}
+
+impl MirVisitorMut for CloneEquivLabelsBack {
+    fn visit_block(&mut self, code: &mut Vec<Mir>) {
+        let mut i = 0;
+        while i < code.len() {            
+            let mut j = i + 1;
+            self.terminating.clear();
+            while j < code.len() && let mir::Mir::Label(label) = &code[j] {
+                self.terminating.push(*label);
+                j += 1;
+            }
+
+            self.visit(&mut code[i]);
+
+            i += 1;
+        }
+    }
+    
+    fn visit_if(&mut self, _cond: &mut crate::expr::Expr, true_then: &mut Vec<Mir>, false_then: &mut Vec<Mir>) -> MVMAction {
+        for terminating in &self.terminating {
+            true_then.push(mir::Mir::Label(*terminating));
+            false_then.push(mir::Mir::Label(*terminating));
+        }
+
+        self.visit_block(true_then);
+        self.visit_block(false_then);
+
+        MVMAction::Keep
+    }
+}
+
+pub fn clone_equiv_labels_back(block: &mut MirFunc) {
+    CloneEquivLabelsBack { terminating: Vec::new() }.visit_block(&mut block.code)
+}

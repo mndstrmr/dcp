@@ -8,9 +8,3 @@ edition = "2021"
 [dependencies]
 clap = { version = "3.2.17", features = ["derive"] }
 dcp = { path = "../dcp" }
-# dcp_lir = { path = "../dcp_lir" }
-# dcp_lir_gen = { path = "../dcp_lir_gen" }
-# dcp_order = { path = "../dcp_order" }
-# dcp_cfg = { path = "../dcp_cfg" }
-# dcp_cfg_gen = { path = "../dcp_cfg_gen" }
-# dcp_dataflow = { path = "../dcp_dataflow" }

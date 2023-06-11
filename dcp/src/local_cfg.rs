@@ -125,9 +125,20 @@ fn insert_branches(mut a: usize, mut b: usize, mut cond: expr::Expr, subgraph: H
         }
     }
 
-    let purple_starts = purple.iter()
-        .filter(|x| cfg.incoming_for(**x).intersection(&purple).next().is_none())
-        .copied().collect::<Vec<_>>();
+    let mut purple_starts = Vec::new();
+    for node in &purple {
+        let mut exclude = false;
+        for incoming in cfg.incoming_for(*node) {
+            if purple.contains(incoming) && !dominators.implies_backwards_edge(*incoming, *node) {
+                exclude = true;
+                break;
+            }
+        }
+
+        if !exclude {
+            purple_starts.push(*node);
+        }
+    }
 
     let new_terminating = purple_starts.first().cloned();
 
@@ -163,10 +174,11 @@ fn insert_branches(mut a: usize, mut b: usize, mut cond: expr::Expr, subgraph: H
         });
     }
 
-    if !purple_starts.is_empty() {
-        assert!(purple_starts.len() == 1);
-        append_subgraph_to_block(purple, fallthrough, purple_starts[0], cfg, dominators, nodes, block);
+    assert!(purple_starts.is_empty() == purple.is_empty());
+    if purple.is_empty() {
+        return;
     }
+    append_subgraph_to_block(purple, fallthrough, purple_starts[0], cfg, dominators, nodes, block);
 }
 
 fn insert_single_branches(a: usize, cond: expr::Expr, subgraph: HashSet<cfg::NodeId>, fallthrough: Option<cfg::NodeId>, cfg: &cfg::ControlFlowGraph, dominators: &cfg::Dominators, nodes: &mut Vec<lir::LirNode>, block: &mut Vec<mir::Mir>) {
@@ -192,7 +204,7 @@ fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, fallthrough: Option<
         let outgoing = cfg.outgoing_for(node).iter()
             .filter(|x| Some(**x) == fallthrough || (subgraph.contains(x) && !dominators.implies_backwards_edge(node, **x)))
             .collect::<Vec<_>>();
-        
+
         if outgoing.len() == 0 {
             return;
         }
@@ -221,7 +233,6 @@ fn append_subgraph_to_block(subgraph: HashSet<cfg::NodeId>, fallthrough: Option<
                 assert_eq!(*outgoing[1], target.0);
                 (*outgoing[1], *outgoing[0])
             };
-    
 
         if Some(a) == fallthrough {
             return insert_single_branches(b, cond.neg(), subgraph, fallthrough, cfg, dominators, nodes, block);

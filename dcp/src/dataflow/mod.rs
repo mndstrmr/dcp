@@ -34,8 +34,6 @@ enum ReadWrite {
 }
 
 pub fn compress_cfg(cfg: &mut cfg::ControlFlowGraph, nodes: &mut Vec<lir::LirNode>) {
-    // println!("{}", cfg.to_dot(|n| format!("\"{n}: {}\"", nodes[n].code.len())));
-
     let mut n = 0;
     while n < nodes.len() {
         let node = &nodes[n];
@@ -72,7 +70,6 @@ pub fn compress_cfg(cfg: &mut cfg::ControlFlowGraph, nodes: &mut Vec<lir::LirNod
     }
 
     cfg.trim_unreachable();
-    // println!("{}", cfg.to_dot(|n| format!("\"{n}: {}\"", nodes[n].code.len())));
 }
 
 pub fn inline_short_returns(cfg: &mut cfg::ControlFlowGraph, nodes: &mut Vec<lir::LirNode>) {
@@ -102,13 +99,13 @@ pub fn inline_short_returns(cfg: &mut cfg::ControlFlowGraph, nodes: &mut Vec<lir
                     Some(lir::Lir::Branch { target, .. }) if target.0 == n => {
                         target.0 = new;
                     }
-                    _ => nodes[incoming].code.push(lir::Lir::Branch { target: lir::Label(new), cond: None })
+                    _ => {}
                 }
             }
-
-            cfg.remove_node(n);
         }
 
         n += 1;
     }
+
+    // println!("{}", cfg.to_dot(|n| format!("\"{n}: {}\"", nodes[n].code.len())));
 }

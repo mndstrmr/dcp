@@ -46,10 +46,10 @@ impl ControlFlowGraph {
     }
 
     pub fn add_node(&mut self, idx: NodeId) {
-        self.nodes.insert(idx, Node {
+        assert!(self.nodes.insert(idx, Node {
             incoming: HashSet::new(),
             outgoing: HashSet::new(),
-        });
+        }).is_none());
     }
 
     pub fn remove_node(&mut self, idx: NodeId) {
@@ -87,8 +87,8 @@ impl ControlFlowGraph {
     }
 
     pub fn remove_edge(&mut self, src: NodeId, dst: NodeId) {
-        self.nodes.get_mut(&src).unwrap().outgoing.remove(&dst);
-        self.nodes.get_mut(&dst).unwrap().incoming.remove(&src);
+        assert!(self.nodes.get_mut(&src).unwrap().outgoing.remove(&dst));
+        assert!(self.nodes.get_mut(&dst).unwrap().incoming.remove(&src));
     }
 
     pub fn nodes(&self) -> HashSet<NodeId> {
